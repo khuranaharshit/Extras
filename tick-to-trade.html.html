@@ -1,0 +1,1762 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Tick-to-trade — systems engineering field notes</title>
+<style>
+:root, .light {
+  --paper:#EFF2F3; --card:#FFFFFF;
+  --rule:#D2DADD;  --ruleHard:#AFBCC1;
+  --ink:#0D1A1F;   --body:#2C3E45;
+  --dim:#5C7078;   --dimmer:#8CA0A7;
+  --cost:#A5123A;  --warn:#835A00;
+  --fixed:#046B6A; --hw:#4234BE;
+  --grid:rgba(13,26,31,.045);
+  --bar:rgba(13,26,31,.07);
+  --hover:rgba(255,255,255,.72);
+  --code:#24363D;
+  --chip:rgba(66,52,190,.07);
+  --chipb:rgba(66,52,190,.20);
+  --field:#FFFFFF;
+}
+.dark {
+  --paper:#0A1115; --card:#111B21;
+  --rule:#21313A;  --ruleHard:#37505B;
+  --ink:#E9F2F5;   --body:#B7CAD2;
+  --dim:#7E959D;   --dimmer:#5B7279;
+  --cost:#FF7591;  --warn:#E4AC42;
+  --fixed:#4FD8CE; --hw:#ABA0FF;
+  --grid:rgba(233,242,245,.05);
+  --bar:rgba(233,242,245,.09);
+  --hover:rgba(255,255,255,.035);
+  --code:#A6BFC8;
+  --chip:rgba(171,160,255,.10);
+  --chipb:rgba(171,160,255,.26);
+  --field:#0D171C;
+}
+* { box-sizing:border-box; }
+html,body { margin:0; padding:0; }
+body {
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  background:var(--paper); color:var(--body);
+  font-family:var(--sans); font-size:15px; line-height:1.62;
+  padding:0 20px; min-height:100vh;
+  -webkit-font-smoothing:antialiased;
+  transition:background .25s, color .25s;
+}
+a { color:var(--fixed); text-decoration:none; }
+a:hover { text-decoration:underline; }
+a:focus-visible, button:focus-visible, input:focus-visible { outline:2px solid var(--hw); outline-offset:2px; }
+
+/* hero */
+.hero { max-width:1020px; margin:0 auto; padding:54px 0 44px; position:relative; }
+.hero::before {
+  content:""; position:absolute; inset:0 -40px; z-index:0; pointer-events:none;
+  background-image:
+    linear-gradient(to right, var(--grid) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid) 1px, transparent 1px);
+  background-size:28px 28px;
+  -webkit-mask-image:linear-gradient(to bottom, rgba(0,0,0,.9), transparent 72%);
+          mask-image:linear-gradient(to bottom, rgba(0,0,0,.9), transparent 72%);
+}
+.hero > * { position:relative; z-index:1; }
+.eyebrow {
+  display:flex; justify-content:space-between; align-items:center;
+  font-family:var(--mono); font-size:11px; letter-spacing:.16em; text-transform:uppercase;
+  color:var(--dimmer); border-bottom:1px solid var(--ruleHard);
+  padding-bottom:10px; margin-bottom:34px;
+}
+.toggle {
+  display:inline-flex; align-items:center; gap:8px;
+  font-family:var(--mono); font-size:11px; letter-spacing:.16em; text-transform:uppercase;
+  color:var(--dim); background:none; cursor:pointer;
+  border:1px solid var(--rule); border-radius:2px; padding:4px 10px;
+}
+.toggle:hover { color:var(--ink); border-color:var(--ruleHard); }
+.dot { width:9px; height:9px; border-radius:50%; border:1px solid var(--dim); background:transparent; transition:background .2s; }
+.dot.on { background:var(--warn); border-color:var(--warn); }
+h1 {
+  font-family:var(--mono); font-weight:600; font-size:56px; line-height:1;
+  letter-spacing:-.035em; margin:0 0 20px; color:var(--ink);
+}
+h1 .hy { color:var(--cost); }
+.sub { max-width:720px; color:var(--dim); font-size:16px; margin:0 0 46px; }
+
+.ruler { position:relative; height:18px; margin-bottom:8px; }
+.ruler .tick { position:absolute; top:0; transform:translateX(-50%); }
+.ruler .tick span { font-family:var(--mono); font-size:10px; color:var(--dimmer); letter-spacing:.06em; }
+
+.trace { border-top:1px solid var(--ruleHard); }
+.row {
+  display:grid; grid-template-columns:34px 244px 1fr 74px; align-items:center; gap:12px;
+  width:100%; background:none; border:0; border-bottom:1px solid var(--rule);
+  padding:9px 0; cursor:pointer; text-align:left; color:inherit; font:inherit;
+  transition:background .12s;
+}
+.row:hover, .row.on { background:var(--hover); }
+.rid { font-family:var(--mono); font-size:11px; color:var(--dimmer); }
+.rname { font-family:var(--mono); font-size:12.5px; color:var(--ink); }
+.rbar { height:9px; background:var(--bar); border-radius:1px; overflow:hidden; }
+.fill { display:block; height:100%; opacity:.9; transition:width .55s cubic-bezier(.2,.7,.3,1); }
+.rval { font-family:var(--mono); font-size:12px; text-align:right; }
+.note { font-size:13px; color:var(--dim); margin:22px 0 0; max-width:700px; }
+.note .dimspan { color:var(--dimmer); }
+
+/* parts */
+.part { max-width:1020px; margin:40px auto 0; padding:62px 0 26px; border-top:2px solid var(--ink); }
+.part-tag { font-family:var(--mono); font-size:10.5px; letter-spacing:.2em; text-transform:uppercase; color:var(--cost); margin:14px 0 10px; }
+.part h2 { font-family:var(--mono); font-size:30px; font-weight:600; letter-spacing:-.025em; color:var(--ink); margin:0 0 12px; }
+
+.block { max-width:1020px; margin:0 auto; padding:34px 0 0; }
+.block h3 { font-family:var(--mono); font-size:18px; font-weight:500; color:var(--ink); letter-spacing:-.012em; margin:0 0 16px; }
+.hn { color:var(--cost); margin-right:10px; font-size:13px; }
+.lead { color:var(--dim); max-width:740px; margin:-6px 0 22px; font-size:14.5px; }
+
+/* scope */
+.scope { background:var(--card); border:1px solid var(--rule); border-radius:2px; margin:0 0 20px; }
+.scope-label { font-family:var(--mono); font-size:10px; letter-spacing:.16em; text-transform:uppercase; color:var(--dimmer); padding:7px 14px; border-bottom:1px solid var(--rule); }
+.scope-body { margin:0; padding:16px 14px; overflow-x:auto; font-family:var(--mono); font-size:12px; line-height:1.55; color:var(--code); white-space:pre; }
+
+/* stages */
+main { max-width:1020px; margin:0 auto; }
+.stage { border-top:1px solid var(--rule); }
+.stage:last-child { border-bottom:1px solid var(--ruleHard); }
+.stage.open { background:var(--hover); }
+.stage-head {
+  display:grid; grid-template-columns:46px 1fr auto 22px; gap:16px; align-items:start;
+  width:100%; background:none; border:0; padding:22px 12px; cursor:pointer; text-align:left;
+  color:inherit; font:inherit;
+}
+.sid { font-family:var(--mono); font-size:20px; font-weight:600; letter-spacing:-.02em; }
+.sname { display:block; font-family:var(--mono); font-size:17.5px; color:var(--ink); letter-spacing:-.015em; }
+.slede { display:block; font-size:14px; color:var(--dim); margin-top:5px; max-width:640px; }
+.smeta { text-align:right; font-family:var(--mono); font-size:14px; }
+.stail { display:block; font-size:10.5px; color:var(--dimmer); margin-top:4px; letter-spacing:.04em; }
+.chev { color:var(--dimmer); font-size:13px; transition:transform .18s; margin-top:6px; }
+.stage.open .chev { transform:rotate(180deg); }
+.stage-body { padding:0 12px 34px 62px; max-width:900px; }
+.verdict { border-left:2px solid; padding:3px 0 3px 14px; font-family:var(--mono); font-size:13.5px; color:var(--ink); margin:0 0 20px; }
+
+.calls { display:flex; flex-wrap:wrap; gap:7px; align-items:center; margin:0 0 20px; }
+.calls-h { font-family:var(--mono); font-size:9.5px; letter-spacing:.16em; text-transform:uppercase; color:var(--dimmer); margin-right:4px; }
+.calls code { font-family:var(--mono); font-size:11.5px; color:var(--hw); background:var(--chip); border:1px solid var(--chipb); border-radius:2px; padding:2px 7px; }
+
+.villains { list-style:none; padding:0; margin:0 0 20px; }
+.villains li { display:grid; grid-template-columns:160px 1fr; gap:14px; padding:9px 0; border-bottom:1px solid var(--rule); }
+.villains strong { font-family:var(--mono); font-size:12.5px; font-weight:500; color:var(--cost); }
+.villains span { font-size:14px; color:var(--dim); }
+
+.para { margin:0 0 18px; }
+.para h4 { font-family:var(--mono); font-size:12px; font-weight:500; color:var(--fixed); letter-spacing:.04em; margin:0 0 5px; }
+.para p { margin:0; font-size:14.5px; color:var(--body); }
+
+/* tables */
+.tbl-wrap { overflow-x:auto; margin:0 0 22px; background:var(--card); border:1px solid var(--rule); border-radius:2px; }
+table { border-collapse:collapse; width:100%; font-size:13.5px; }
+table.wide { min-width:740px; }
+th { text-align:left; font-family:var(--mono); font-size:9.5px; letter-spacing:.16em; text-transform:uppercase; color:var(--dimmer); font-weight:500; padding:11px 16px 9px; border-bottom:1px solid var(--ruleHard); white-space:nowrap; }
+td { padding:10px 16px; border-bottom:1px solid var(--rule); color:var(--dim); vertical-align:top; }
+tr:last-child td { border-bottom:0; }
+.td-k { font-family:var(--mono); font-size:12px; color:var(--ink); }
+.td-v { font-family:var(--mono); font-size:12px; white-space:nowrap; color:var(--body); }
+
+/* links */
+.res { border-top:1px solid var(--rule); padding-top:16px; margin-top:24px; }
+.res-h { font-family:var(--mono); font-size:9.5px; letter-spacing:.18em; text-transform:uppercase; color:var(--dimmer); margin-bottom:10px; }
+.links { list-style:none; padding:0; margin:0 0 8px; }
+.links li { display:flex; justify-content:space-between; align-items:baseline; gap:16px; padding:5px 0; }
+.links a { font-size:13.5px; display:flex; gap:8px; align-items:baseline; }
+.links .arrow { color:var(--dimmer); font-size:10px; }
+.links .host { font-family:var(--mono); font-size:10.5px; color:var(--dimmer); white-space:nowrap; }
+
+/* five */
+.five { list-style:none; padding:0; margin:0; }
+.five li { display:grid; grid-template-columns:34px 1fr; gap:14px; padding:13px 0; border-bottom:1px solid var(--rule); }
+.fnum { font-family:var(--mono); font-size:18px; font-weight:600; color:var(--cost); line-height:1.2; }
+.fbody a { font-size:15px; }
+.fbody em { display:block; font-style:normal; font-size:13.5px; color:var(--dim); margin-top:2px; }
+
+/* glossary */
+.filter { width:100%; max-width:420px; margin:0 0 26px; font-family:var(--mono); font-size:13px; color:var(--ink); background:var(--field); border:1px solid var(--rule); border-radius:2px; padding:9px 12px; }
+.filter::placeholder { color:var(--dimmer); }
+.empty { font-size:14px; color:var(--dim); }
+.gl { margin:0 0 28px; }
+.gl-h { font-family:var(--mono); font-size:10.5px; letter-spacing:.18em; text-transform:uppercase; color:var(--warn); padding-bottom:8px; border-bottom:1px solid var(--ruleHard); margin-bottom:2px; }
+.gl ul { list-style:none; padding:0; margin:0; }
+.gl li { display:grid; grid-template-columns:108px 1fr 1fr; gap:16px; align-items:baseline; padding:8px 0; border-bottom:1px solid var(--rule); }
+.gl code { font-family:var(--mono); font-size:12px; color:var(--hw); background:var(--chip); border:1px solid var(--chipb); border-radius:2px; padding:1px 6px; justify-self:start; }
+.gl-full { font-size:13.5px; color:var(--ink); }
+.gl-mean { font-size:13.5px; color:var(--dim); }
+
+footer { max-width:1020px; margin:66px auto 0; padding:18px 0 60px; border-top:2px solid var(--ink); display:flex; justify-content:space-between; gap:20px; flex-wrap:wrap; font-family:var(--mono); font-size:11px; color:var(--dim); letter-spacing:.04em; }
+.f-dim { color:var(--dimmer); }
+
+@media (max-width:780px) {
+  h1 { font-size:36px; }
+  .hero { padding-top:34px; }
+  .ruler { display:none; }
+  .row { grid-template-columns:26px 1fr 62px; }
+  .row .rbar { display:none; }
+  .part h2 { font-size:23px; }
+  .stage-head { grid-template-columns:34px 1fr 18px; padding:20px 0; }
+  .smeta { grid-column:2; text-align:left; }
+  .stage-body { padding-left:0; padding-right:0; }
+  .villains li { grid-template-columns:1fr; gap:3px; }
+  .links li { flex-direction:column; gap:1px; }
+  .scope-body { font-size:10.5px; }
+  .gl li { grid-template-columns:1fr; gap:3px; }
+}
+@media (prefers-reduced-motion:reduce) { .fill,.chev,body { transition:none; } }
+@media print {
+  body { background:#fff; color:#000; }
+  .toggle, .filter { display:none; }
+  .stage-body { display:block !important; }
+}
+</style>
+</head>
+<body class="light">
+<div id="app"></div>
+
+<script>
+/* ================================================================= */
+/*  data                                                             */
+/* ================================================================= */
+
+var LO = 1.9, HI = 5.1;
+function pct(ns){ return Math.max(2, ((Math.log10(ns) - LO) / (HI - LO)) * 100); }
+function fmt(ns){ return ns >= 1000 ? (ns/1000).toFixed(ns >= 10000 ? 0 : 1) + " \u00B5s" : ns + " ns"; }
+function esc(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+function host(u){ try { return new URL(u).hostname.replace(/^www\./,""); } catch(e){ return ""; } }
+
+var RINGS =
+"  ONE ADDRESS SPACE, TWO PRIVILEGE LEVELS\n" +
+"  ==============================================================\n" +
+"\n" +
+"   ring 3  USER      your code. CPL=3 in the CS register.\n" +
+"                     May not run privileged instructions, may not\n" +
+"                     touch any page whose PTE has U/S = 0.\n" +
+"\n" +
+"   ring 0  KERNEL    drivers, scheduler, network stack.\n" +
+"                     Historically the SAME virtual address space,\n" +
+"                     just pages your privilege level cannot reach.\n" +
+"\n" +
+"   The boundary is NOT separate memory. It is one bit in every\n" +
+"   page table entry (U/S) plus the CPL field in the CS register.\n" +
+"   The MMU enforces it on every access, in hardware, for free.\n" +
+"\n" +
+"\n" +
+"  HOW YOU CROSS IT - step by step\n" +
+"  ==============================================================\n" +
+"   1. you execute the  SYSCALL  instruction\n" +
+"   2. CPU reads MSR_LSTAR, a register holding the address of the\n" +
+"      kernel's entry point                       (0xC0000082)\n" +
+"   3. CPU sets CPL = 0, saves your RIP into RCX, RFLAGS into R11\n" +
+"   4. kernel runs SWAPGS to swap the GS base register from your\n" +
+"      thread-local pointer to the kernel's per-CPU data pointer\n" +
+"   5. kernel loads its own stack pointer, which it parked in the\n" +
+"      TSS (Task State Segment, a small hardware-read table)\n" +
+"   6. [KPTI] kernel writes CR3 to swap in the kernel page tables\n" +
+"   7. ... your syscall runs ...\n" +
+"   8. SYSRET restores RIP from RCX, RFLAGS from R11, back to ring 3\n" +
+"\n" +
+"   Step 6 is the Meltdown tax. Before 2018 the kernel was mapped\n" +
+"   into every process, so there was no CR3 write and no TLB\n" +
+"   disturbance. Now user page tables contain almost no kernel\n" +
+"   pages, so entry and exit each rewrite CR3. PCID is the only\n" +
+"   thing keeping that from being catastrophic.\n" +
+"\n" +
+"       bare syscall (pre-2018) .................   ~60 ns\n" +
+"       + KPTI + retpoline + IBRS ...............   300-700 ns\n" +
+"       vDSO call (never enters ring 0) .........   ~20 ns\n" +
+"       RDTSCP (an instruction, not a call) .....   ~20 cycles\n" +
+"\n" +
+"\n" +
+"  THE vDSO\n" +
+"  ==============================================================\n" +
+"   The kernel maps one page of code and one of data into every\n" +
+"   process. clock_gettime, gettimeofday, getcpu and time run\n" +
+"   entirely in ring 3 by reading that shared data. No privilege\n" +
+"   transition at all. Still ~20 ns, too slow for a hot loop -\n" +
+"   and it reads a page another core may be updating.";
+
+var MMU =
+"  VIRTUAL -> PHYSICAL: WHO ACTUALLY DOES IT\n" +
+"  ==============================================================\n" +
+"\n" +
+"   Your pointer is a virtual address. It is meaningless to DRAM.\n" +
+"   The MMU translates it on EVERY load, store and instruction\n" +
+"   fetch. Nothing you can write bypasses this.\n" +
+"\n" +
+"   48-bit canonical address, 4 KB pages, x86-64:\n" +
+"\n" +
+"    63      48 47    39 38    30 29    21 20    12 11        0\n" +
+"   +----------+--------+--------+--------+--------+-----------+\n" +
+"   |   sign   |  PML4  |  PDPT  |   PD   |   PT   |  offset   |\n" +
+"   +----------+--------+--------+--------+--------+-----------+\n" +
+"                  |        |        |        |         |\n" +
+"    CR3 register  |        |        |        |         |\n" +
+"        |         v        v        v        v         |\n" +
+"        +--> [PML4E] -> [PDPTE] -> [PDE] -> [PTE] -> frame + offset\n" +
+"\n" +
+"    PML4  Page Map Level 4          - top level\n" +
+"    PDPT  Page Directory Pointer T. - third level\n" +
+"    PD    Page Directory            - second level\n" +
+"    PT    Page Table                - bottom, holds the PTEs\n" +
+"    PTE   Page Table Entry          - one page's translation\n" +
+"    CR3   Control Register 3        - points at the PML4 root\n" +
+"\n" +
+"   4 levels = up to 4 dependent memory reads for ONE access.\n" +
+"   (5 levels, ~57-bit addresses, on machines running LA57.)\n" +
+"\n" +
+"   Huge pages terminate the walk early:\n" +
+"       2 MB page -> stops at the PD level    (3 reads)\n" +
+"       1 GB page -> stops at the PDPT level  (2 reads)\n" +
+"\n" +
+"   Every entry is 8 bytes and carries the permissions:\n" +
+"       P    present. 0 -> #PF page fault\n" +
+"       R/W  writable\n" +
+"       U/S  0 = ring 0 only     <-- the kernel/user boundary\n" +
+"       A    accessed  (set by hardware, read by the kernel)\n" +
+"       D    dirty     (set by hardware)\n" +
+"       G    global    survives a CR3 write\n" +
+"       NX   no-execute\n" +
+"\n" +
+"\n" +
+"  WHO RUNS THE WALK\n" +
+"  ==============================================================\n" +
+"   On x86-64 and ARM64: a dedicated HARDWARE page-miss handler\n" +
+"   inside the MMU. The operating system never learns that a TLB\n" +
+"   miss happened. It hears from the CPU only when the walk FAILS,\n" +
+"   as a #PF exception.\n" +
+"\n" +
+"   On MIPS, Itanium and older SPARC: a software-managed TLB. A\n" +
+"   miss traps into the OS, which walks the tables itself. Slower\n" +
+"   per miss, but the OS may invent any page table format it likes.\n" +
+"\n" +
+"   x86 also caches the INTERIOR nodes of the tree (the\n" +
+"   paging-structure caches: PML4E, PDPTE and PDE caches). So a\n" +
+"   real miss is usually 1-2 memory reads rather than 4 - unless\n" +
+"   you are jumping randomly across terabytes.";
+
+var TLB =
+"  THE TLB - A CACHE OF TRANSLATIONS, NOTHING ELSE\n" +
+"  ==============================================================\n" +
+"   TLB = Translation Lookaside Buffer.\n" +
+"\n" +
+"   !! IT IS NOT BETWEEN DISK AND RAM. !!\n" +
+"\n" +
+"     disk  <--- page cache and swap, managed by the KERNEL.\n" +
+"      |         A miss here is a MAJOR page fault: milliseconds.\n" +
+"      |\n" +
+"     RAM   <--- L3 / L2 / L1 cache DATA, managed by HARDWARE.\n" +
+"      |         A miss here is 80-100 ns.\n" +
+"      |\n" +
+"     CPU   <--- the TLB lives HERE. It caches ADDRESS\n" +
+"                TRANSLATIONS, not data. Consulted in parallel\n" +
+"                with the L1 lookup, on every single access.\n" +
+"\n" +
+"   Data caches answer \"what is stored at physical address X\".\n" +
+"   The TLB answers \"which physical address is virtual X\".\n" +
+"   Different question, different structure, same nanosecond.\n" +
+"\n" +
+"\n" +
+"  SIZES (Skylake / Ice Lake class, per physical core)\n" +
+"  ==============================================================\n" +
+"   L1 iTLB      128 entries (4K)  +   8 (2M)\n" +
+"   L1 dTLB       64 entries (4K)  +  32 (2M)  +  4 (1G)\n" +
+"   L2 STLB     1536-2048 entries, shared between 4K and 2M\n" +
+"\n" +
+"   COVERAGE - the number that actually matters:\n" +
+"       64 x   4 KB  =    256 KB reachable without a page walk\n" +
+"       32 x   2 MB  =     64 MB\n" +
+"        4 x   1 GB  =      4 GB\n" +
+"\n" +
+"   An 8 MB order book on 4 KB pages is 2,000 pages competing for\n" +
+"   64 L1 dTLB slots. You will miss constantly. On one 1 GB page\n" +
+"   it is a single entry that never leaves.\n" +
+"\n" +
+"\n" +
+"  WHO MANAGES IT, AND HOW IT IS INVALIDATED\n" +
+"  ==============================================================\n" +
+"   Filled by:       hardware, automatically, on every walk.\n" +
+"   Evicted by:      hardware, LRU-ish. You have no say.\n" +
+"   Invalidated by:  SOFTWARE, explicitly - because the hardware\n" +
+"                    cannot know you edited a page table.\n" +
+"\n" +
+"       INVLPG <addr>    \"invalidate page\": drop one translation\n" +
+"       MOV to CR3       drop everything not marked Global\n" +
+"       INVPCID          drop by address-space tag\n" +
+"\n" +
+"   PCID (x86 \"process context identifier\") / ASID (ARM \"address\n" +
+"   space identifier\"): a 12-bit tag stored alongside each TLB\n" +
+"   entry. Two processes' translations coexist in the TLB without\n" +
+"   a flush on context switch. Without PCID, KPTI would flush the\n" +
+"   entire TLB twice per syscall.\n" +
+"\n" +
+"\n" +
+"  !! TLBs ARE NOT CACHE-COHERENT !!\n" +
+"  ==============================================================\n" +
+"   Data caches keep themselves coherent in hardware (MESI).\n" +
+"   TLBs do NOT. If core 0 edits a page table entry, cores 1..N\n" +
+"   may still be using the stale translation, and no hardware\n" +
+"   will tell them.\n" +
+"\n" +
+"   So the kernel sends an inter-processor interrupt:\n" +
+"\n" +
+"     core 0: munmap / mprotect / madvise / THP collapse\n" +
+"        |\n" +
+"        |  edit the PTE\n" +
+"        |  build a mask of cores that may have this mm loaded\n" +
+"        v\n" +
+"     IPI  -->  core 3 --> interrupt, INVLPG, acknowledge\n" +
+"          -->  core 7 --> interrupt, INVLPG, acknowledge\n" +
+"          -->  ...       (core 0 WAITS for every acknowledgement)\n" +
+"\n" +
+"     cost:  2-10 us, and it gets WORSE with more cores.\n" +
+"\n" +
+"   This is why a trading process must never munmap, mprotect or\n" +
+"   madvise during the session, and must never let khugepaged\n" +
+"   run. One unrelated thread calling free() with a big enough\n" +
+"   chunk can stall every core on the machine.";
+
+var LINES =
+"  A LOAD IS NEVER \"CONTINUING\". IT IS ALWAYS A FRESH LOOKUP.\n" +
+"  ==============================================================\n" +
+"   There is no cursor. The CPU does not hold a cache address and\n" +
+"   walk forward through it. Every single load issues a VIRTUAL\n" +
+"   address, and that address is translated, independently, every\n" +
+"   time. No state carries between two loads.\n" +
+"\n" +
+"   What makes it feel free is that both lookups happen AT ONCE:\n" +
+"\n" +
+"     virtual address   0x7f3a_1234_5678\n" +
+"       |                                  |\n" +
+"       | bits 47:12                       | bits 11:0\n" +
+"       | (the page number)                | (offset in the page,\n" +
+"       v                                  v  NEVER translated)\n" +
+"    +-------+                     +------------------------+\n" +
+"    |  TLB  |--> physical page -> | compare against the    |\n" +
+"    +-------+    number           | tags in the chosen set |\n" +
+"                                  +------------------------+\n" +
+"                                        ^\n" +
+"      bits 11:6  pick which SET ---------+\n" +
+"      bits  5:0  pick the byte within the line\n" +
+"\n" +
+"\n" +
+"  THE ELEGANT PART - WHY L1 IS 32 KB AND 8-WAY\n" +
+"  ==============================================================\n" +
+"     L1d = 32 KB, 8 ways, 64-byte lines\n" +
+"         -> 32768 / 8 / 64  =  64 sets\n" +
+"         -> 6 set bits + 6 offset bits  =  12 bits\n" +
+"         -> 2^12  =  4096  =  EXACTLY the page size\n" +
+"\n" +
+"   The low 12 bits of a virtual address are IDENTICAL to the low\n" +
+"   12 bits of the physical address, because the page offset is\n" +
+"   never translated. So the core can start the L1 set lookup\n" +
+"   using untranslated bits while the TLB works in parallel, and\n" +
+"   compare physical tags only at the end.\n" +
+"\n" +
+"   That design is called VIPT: Virtually Indexed, Physically\n" +
+"   Tagged. L1 is 32 KB and 8-way for this reason. Not arbitrary.\n" +
+"   Forced by the 4 KB page size.\n" +
+"\n" +
+"\n" +
+"  CAN ONE CACHE LINE HOLD TWO PROCESSES' DATA?  NO.\n" +
+"  ==============================================================\n" +
+"   The sizes nest the opposite way from how it feels:\n" +
+"\n" +
+"       page  = 4096 bytes  =  64 cache lines\n" +
+"       line  =   64 bytes\n" +
+"\n" +
+"     one page:  |================================================|\n" +
+"     lines:     |--|--|--|--|--|--|--|--|--| ... 64 of them ...  |\n" +
+"\n" +
+"   4096 is a multiple of 64, and both are naturally aligned. A\n" +
+"   cache line can therefore NEVER straddle a page boundary.\n" +
+"   Lines nest perfectly inside pages. Every line belongs to\n" +
+"   exactly one page, which belongs to exactly one mapping.\n" +
+"\n" +
+"   The cache absolutely does hold many processes' data at once -\n" +
+"   in DIFFERENT lines. Never in the same line. And because\n" +
+"   caches are physically tagged, a context switch does not flush\n" +
+"   them. That is precisely why another process can pollute your\n" +
+"   L3 and why you fence it off with Intel CAT.\n" +
+"\n" +
+"\n" +
+"  \"PHYSICAL MEMORY HAS NO GAPS - WHY NOT READ PAST THE END?\"\n" +
+"  ==============================================================\n" +
+"   You are right that there are no gaps: process A's frame and\n" +
+"   process B's frame can be physically adjacent, byte after\n" +
+"   byte. Three separate reasons it does not matter.\n" +
+"\n" +
+"   1. YOU CANNOT NAME THE ADDRESS.\n" +
+"      The MMU is not a bounds check on a flat space. It is a\n" +
+"      lookup table. There is simply NO virtual address in A's\n" +
+"      page tables that maps to B's private frame. You cannot\n" +
+"      form the address, so you cannot issue the load. Walking\n" +
+"      off the end of your own mapping lands on a PTE with P=0,\n" +
+"      which raises #PF, which the kernel turns into SIGSEGV.\n" +
+"\n" +
+"   2. VIRTUAL ADJACENCY IS NOT PHYSICAL ADJACENCY.\n" +
+"\n" +
+"        virtual:   [ page N ][ page N+1 ][ page N+2 ]\n" +
+"                       |          |            |\n" +
+"        physical:  frame 0x8812  frame 0x0031  frame 0x91ac\n" +
+"                   (scattered, unrelated, whatever the kernel\n" +
+"                    had free at the time)\n" +
+"\n" +
+"      Reading sequentially in YOUR address space is jumping\n" +
+"      around in physical space. There is nothing to run off the\n" +
+"      end OF. This is also the deep reason for point 3.\n" +
+"\n" +
+"   3. THE HARDWARE STOPS AT THE PAGE BOUNDARY ANYWAY.\n" +
+"\n" +
+"\n" +
+"  YES - PREFETCHING IS BOUNDED BY THE PAGE, AND THE TLB IS WHY\n" +
+"  ==============================================================\n" +
+"   Hardware prefetchers on x86 DO NOT CROSS A 4 KB PAGE\n" +
+"   BOUNDARY. At the boundary the next physical address is\n" +
+"   unknowable without a fresh translation, and a speculative\n" +
+"   prefetcher must not trigger a page walk or a fault for data\n" +
+"   you may never actually request.\n" +
+"\n" +
+"     |=== streamer runs across one 4 KB page ===| STOP\n" +
+"     |=== next page: cold start, re-learn    ===| STOP\n" +
+"     |=== next page: cold start, re-learn    ===| STOP\n" +
+"\n" +
+"   So on 4 KB pages, every 4 KB of a sequential scan costs you:\n" +
+"       - a prefetcher restart (first 1-2 lines are full misses)\n" +
+"       - often a dTLB miss and a page walk\n" +
+"\n" +
+"   On a 2 MB page the streamer runs 2 MB uninterrupted.\n" +
+"   On a 1 GB page, effectively forever.\n" +
+"\n" +
+"   THIS IS A SECOND, INDEPENDENT REASON HUGEPAGES WIN.\n" +
+"   Everyone quotes TLB coverage. On a linear scan, prefetcher\n" +
+"   continuity is often the larger effect.\n" +
+"\n" +
+"   Newer cores add a \"next-page prefetcher\" that speculatively\n" +
+"   warms the TLB ENTRY for page N+1 without fetching any data -\n" +
+"   which is the hardware admitting exactly this problem.\n" +
+"\n" +
+"\n" +
+"  WHAT IF ONE ACCESS STRADDLES A BOUNDARY?\n" +
+"  ==============================================================\n" +
+"   an 8-byte load at offset 60 inside a 64-byte line:\n" +
+"\n" +
+"     SPLIT LINE ACCESS    two lines fetched, halves merged\n" +
+"                          a few extra cycles\n" +
+"\n" +
+"   an 8-byte load at offset 4092 inside a 4 KB page:\n" +
+"\n" +
+"     SPLIT PAGE ACCESS    TWO translations, two TLB lookups,\n" +
+"                          possibly two page walks, possibly two\n" +
+"                          page faults - and the second page may\n" +
+"                          not be mapped at all\n" +
+"                          100+ cycles, and a far worse tail\n" +
+"\n" +
+"   This is why hot structures are aligned to 64 bytes, and why a\n" +
+"   protocol parser doing unaligned reads near a buffer edge is a\n" +
+"   latency landmine.";
+
+var PAGE =
+"  A PAGE HAS NO TYPE. IT IS 4096 BYTES. THAT IS ALL.\n" +
+"  ==============================================================\n" +
+"   There is no header, no magic number, no metadata inside a\n" +
+"   page. Nothing in those 4096 bytes says what it is.\n" +
+"\n" +
+"   All identity lives OUTSIDE the page:\n" +
+"\n" +
+"     the PTE          permissions, present, dirty, accessed, NX\n" +
+"     the VMA          the kernel's record of which region or\n" +
+"                      file this mapping came from\n" +
+"     struct page      the kernel's ~64-byte bookkeeping record\n" +
+"                      per physical frame: refcount, flags, LRU\n" +
+"                      links. Held in a separate array, NOT in\n" +
+"                      the page itself.\n" +
+"\n" +
+"   So \"what does a page contain\" only has an answer once you\n" +
+"   ask \"who mapped it, and what did they write into it\".\n" +
+"\n" +
+"\n" +
+"  YOUR ACTUAL ADDRESS SPACE   (cat /proc/self/maps)\n" +
+"  ==============================================================\n" +
+"  address range           perm  what it is            pages\n" +
+"  ---------------------   ----  --------------------  -----\n" +
+"  55d4a1200000-...21a000  r--p  ELF headers, .rodata     26\n" +
+"  55d4a121a000-...2c8000  r-xp  .text   YOUR CODE       174\n" +
+"  55d4a12c8000-...2f1000  r--p  .rodata, vtables         41\n" +
+"  55d4a12f2000-...2f3000  rw-p  .data + .bss              1\n" +
+"  55d4a3f01000-...f22000  rw-p  [heap]                   33\n" +
+"  7f8c00000000-...        rw-p  anonymous mmap: your pool\n" +
+"  7f8c9a1c0000-...        r-xp  libc.so.6 .text  SHARED\n" +
+"  7f8c9a3f0000-...        r--s  a mmap'ed data file\n" +
+"  7ffd2b3e0000-...401000  rw-p  [stack]                 132\n" +
+"  7ffd2b3f6000-...3f8000  r-xp  [vdso]                    1\n" +
+"  ffffffffff600000-...    --xp  [vsyscall]                1\n" +
+"\n" +
+"    r readable   w writable   x executable\n" +
+"    p private (copy-on-write)   s shared\n" +
+"\n" +
+"  Note libc: those .text pages are ONE set of physical frames,\n" +
+"  mapped into every process on the machine simultaneously.\n" +
+"  Different virtual addresses, same physical page, one copy in\n" +
+"  your L3. That is why shared libraries are cheap.\n" +
+"\n" +
+"\n" +
+"  EXAMPLE 1 - A PAGE OF YOUR CODE       r-xp\n" +
+"  --------------------------------------------------------------\n" +
+"   4096 bytes of raw x86 instruction encodings. Variable length,\n" +
+"   1 to 15 bytes each, no separators.\n" +
+"\n" +
+"    0x000:  55                     push rbp\n" +
+"            48 89 e5               mov  rbp, rsp\n" +
+"            48 83 ec 20            sub  rsp, 0x20\n" +
+"            8b 45 fc               mov  eax, [rbp-4]\n" +
+"            ...\n" +
+"    0x8f3:  c3                     ret          <- function ends\n" +
+"    0x8f4:  cc cc cc cc            padding to alignment\n" +
+"    0x900:  f3 0f 1e fa            endbr64      <- next function\n" +
+"            ...\n" +
+"    0xfff:  48                     <- an instruction can START\n" +
+"                                      here and FINISH in the\n" +
+"                                      next page. Instruction\n" +
+"                                      fetch straddles pages, so\n" +
+"                                      one instruction can cause\n" +
+"                                      two iTLB lookups and two\n" +
+"                                      page faults.\n" +
+"\n" +
+"\n" +
+"  EXAMPLE 2 - A PAGE OF YOUR HEAP       rw-p\n" +
+"  --------------------------------------------------------------\n" +
+"   glibc malloc writes an 8- or 16-byte header before every\n" +
+"   block you asked for:\n" +
+"\n" +
+"    0x000:  [ size | flags  8B ][ your 24 bytes             ]\n" +
+"    0x020:  [ size | flags  8B ][ your 104 bytes            ]\n" +
+"    0x090:  [ size | flags  8B ][ FREE: fd ptr, bk ptr, ... ]\n" +
+"    0x0d0:  [ size | flags  8B ][ your 56 bytes             ]\n" +
+"    ...\n" +
+"\n" +
+"   Two consequences worth internalising:\n" +
+"\n" +
+"   - CACHE DENSITY. A 24-byte object costs 32-40 bytes of line,\n" +
+"     and headers are interleaved with your data, so scanning N\n" +
+"     objects touches ~1.5x the lines it should. This is the\n" +
+"     concrete reason stage 06 uses flat arrays.\n" +
+"\n" +
+"   - USE-AFTER-FREE. Freed blocks store free-list pointers\n" +
+"     INSIDE the old payload. The page is still mapped, still\n" +
+"     present, still yours - so reading a freed pointer gives\n" +
+"     you allocator internals, not a fault. That is why it is a\n" +
+"     silent bug and an exploitable one.\n" +
+"\n" +
+"\n" +
+"  EXAMPLE 3 - A PAGE OF YOUR STACK      rw-p, grows down\n" +
+"  --------------------------------------------------------------\n" +
+"   high  0x...fff  [ argv and envp strings                  ]\n" +
+"                   [ main's frame                           ]\n" +
+"                   [   saved rbp                            ]\n" +
+"                   [   RETURN ADDRESS                       ]\n" +
+"                   [   local arrays, spilled registers      ]\n" +
+"                   [ parse_message()'s frame                ]\n" +
+"                   [   saved rbp                            ]\n" +
+"                   [   RETURN ADDRESS   <- what an overflow ]\n" +
+"                   [   char buf[256]       overwrites       ]\n" +
+"    rsp ------->   [ ............ unused ................. ]\n" +
+"   low   0x...000  [ NOT MAPPED YET - lazily faulted in     ]\n" +
+"                   [ GUARD PAGE: no mapping at all          ]\n" +
+"\n" +
+"   Stack pages appear one at a time as you recurse, each a\n" +
+"   #PF. Below the lowest one sits a guard page with no mapping,\n" +
+"   which is how stack overflow becomes a clean SIGSEGV instead\n" +
+"   of silently scribbling on the heap.\n" +
+"\n" +
+"   This is also why you pre-touch your stack at startup: a\n" +
+"   deeply nested call in the hot path would otherwise fault.\n" +
+"\n" +
+"\n" +
+"  EXAMPLE 4 - A PAGE THAT IS ITSELF A PAGE TABLE\n" +
+"  --------------------------------------------------------------\n" +
+"   512 entries x 8 bytes = 4096 bytes. Exactly one page. That\n" +
+"   is why there are 9 index bits per level: 2^9 = 512.\n" +
+"\n" +
+"    entry   0:  0x8000_0008_1a2b_c867\n" +
+"                 |         |        |\n" +
+"                 |         |        +-- flags: P R/W U/S A D\n" +
+"                 |         +----------- physical frame number\n" +
+"                 +--------------------- NX bit (top bit)\n" +
+"    entry   1:  0x0000_0000_0000_0000   <- P=0, a hole\n" +
+"    entry   2:  0x0000_0009_03f1_c825\n" +
+"    ...\n" +
+"    entry 511:  0x0000_0002_1bc4_4867\n" +
+"\n" +
+"   The page table is made of pages. CR3 holds the physical\n" +
+"   address of one of them. That is the entire recursion.\n" +
+"\n" +
+"\n" +
+"  EXAMPLE 5 - A NIC RING BUFFER PAGE    rw-p, and pinned\n" +
+"  --------------------------------------------------------------\n" +
+"    0x000:  [ descriptor 0: phys addr | len | flags ]   16 B\n" +
+"    0x010:  [ descriptor 1                         ]\n" +
+"    0x020:  [ descriptor 2                         ]\n" +
+"    ...     256 descriptors in one page\n" +
+"\n" +
+"   The NIC was told the PHYSICAL address of this page at setup.\n" +
+"   It writes here by DMA. Your process has the same frame mapped\n" +
+"   virtually. Neither side translates for the other - the driver\n" +
+"   did the translation once and then PINNED the page.\n" +
+"\n" +
+"   This is exactly why kernel bypass requires pinning. If the\n" +
+"   kernel were free to migrate or swap that frame, the NIC would\n" +
+"   keep DMA-ing into memory that no longer belongs to you.\n" +
+"\n" +
+"\n" +
+"  EXAMPLE 6 - THE ZERO PAGE   r--p, ONE frame, whole machine\n" +
+"  --------------------------------------------------------------\n" +
+"   4096 bytes of 0x00. There is exactly one of these in the\n" +
+"   entire system.\n" +
+"\n" +
+"   calloc(1, 1<<30) does not allocate a gigabyte. Every virtual\n" +
+"   page in that range points at the single shared zero frame,\n" +
+"   read-only. Reads return zeros out of one cached page. Your\n" +
+"   first WRITE takes a #PF, and only then does the kernel find\n" +
+"   a real frame, zero it, and remap.\n" +
+"\n" +
+"   Which explains three things at once:\n" +
+"     - calloc of a huge array is instantly \"free\"\n" +
+"     - and then mysteriously slow the first time you write\n" +
+"     - and RSS in /proc/PID/status sits far below the mapped\n" +
+"       size until you touch it\n" +
+"\n" +
+"\n" +
+"  AND A HUGE PAGE?\n" +
+"  --------------------------------------------------------------\n" +
+"   A 2 MB page is 512 physically CONTIGUOUS, 2 MB-ALIGNED 4 KB\n" +
+"   frames, described by a single entry one level up the tree.\n" +
+"   1 GB is 262,144 contiguous frames.\n" +
+"\n" +
+"   Contiguity is the catch. After hours of uptime, physical\n" +
+"   memory is fragmented and the kernel may be unable to find a\n" +
+"   run that long. That is why you reserve hugepages at BOOT\n" +
+"   (hugepages=N on the kernel command line) rather than asking\n" +
+"   for them at 08:59.";
+
+var SHARING = { head:["Scope","Latency","Who can see it","What sharing costs"], rows:[
+["Register","0","one hardware thread","nothing \u2014 never shared","fixed"],
+["Store buffer","~1 cycle","one hardware thread","invisible to others until drained; MFENCE is 30\u2013100 cycles to force it","fixed"],
+["L1d \u2014 32\u201348 KB","4\u20135 cyc / ~1.1 ns","one physical core, both SMT siblings","the hyperthread sibling evicts your lines \u2014 leave it idle","fixed"],
+["L2 \u2014 1\u20132 MB","~14 cyc / ~4 ns","one physical core","private; generates no coherence traffic","fixed"],
+["L3 / LLC \u2014 30\u2013100 MB","40\u201370 cyc / 12\u201325 ns","every core on the socket","a shared commons \u2014 any process can evict you. Fence it with Intel CAT","warn"],
+["Core \u2192 core, same socket","40\u201380 ns","two cores","MESI snoop plus a line transfer. This is what a contended atomic really costs","warn"],
+["Local DRAM","70\u2013100 ns","the socket","bandwidth contention, refresh cycles, bank conflicts","warn"],
+["Cross-socket (UPI / QPI)","130\u2013200 ns","the machine","remote snoop plus a hop. The variance is far worse than the mean","cost"],
+["PCIe posted write (CPU \u2192 NIC)","~150 ns","CPU and device","fire and forget, no completion needed","warn"],
+["PCIe read (CPU \u2190 NIC)","500 ns \u2013 1 \u00B5s","CPU and device","non-posted: you stall for a completion packet. Never on the hot path","cost"],
+["PCIe DMA (NIC \u2192 RAM/L3)","250\u2013500 ns","device and host","with DDIO the write lands in L3 instead of DRAM","warn"],
+["RDMA to another host","0.6\u20132 \u00B5s","two machines","one-sided: the remote CPU is never involved","warn"],
+["Kernel TCP, same rack","15\u201350 \u00B5s","two machines","interrupt, stack traversal and scheduler on both ends","cost"],
+["Cross-datacentre","1\u2013100 ms","everyone","speed of light: 4.9 ns/m in fibre, 3.3 ns/m in air","cost"]]};
+
+var COHERENCE =
+"  MESI - WHAT EVERY CACHE LINE IS DOING\n" +
+"  ==============================================================\n" +
+"   Each 64-byte line, in each core's cache, is in one state:\n" +
+"\n" +
+"     M  Modified   I hold the only copy and I have dirtied it.\n" +
+"     E  Exclusive  I hold the only copy and it is clean.\n" +
+"     S  Shared     Several cores hold a clean read-only copy.\n" +
+"     I  Invalid    I do not hold it.\n" +
+"\n" +
+"   Intel adds F (Forward: \"I am the designated responder\").\n" +
+"   AMD adds O (Owned: dirty AND shared, I supply it directly).\n" +
+"\n" +
+"   A write must reach state M. To get there from S, the core\n" +
+"   broadcasts a Request-For-Ownership and every other core must\n" +
+"   invalidate its copy. THAT is the cost of sharing.\n" +
+"\n" +
+"\n" +
+"  WHAT COORDINATION ACTUALLY COSTS\n" +
+"  ==============================================================\n" +
+"   line already in my L1 as M or E:\n" +
+"     lock xadd / lock cmpxchg .............  ~20 cycles (~6 ns)\n" +
+"     plain load or store ..................  4-5 cycles\n" +
+"\n" +
+"   line owned by ANOTHER core (the interesting case):\n" +
+"     read it  (M -> S transfer) ...........  40-80 ns\n" +
+"     write it (RFO, invalidate the others).  40-100 ns\n" +
+"     ping-pong, two cores hammering it ....  80-160 ns per round\n" +
+"\n" +
+"   fences:\n" +
+"     MFENCE (drain the store buffer) ......  30-100 cycles\n" +
+"     LFENCE ...............................  ~20 cycles\n" +
+"     SFENCE ...............................  cheap on x86\n" +
+"     C++ seq_cst store = MOV + MFENCE, or XCHG\n" +
+"     C++ acquire / release on x86 = FREE, compiler barrier only\n" +
+"\n" +
+"   synchronisation primitives:\n" +
+"     uncontended pthread_mutex ............  ~20 ns (an atomic)\n" +
+"     CONTENDED mutex ......................  futex syscall,\n" +
+"                                             sleep, wake, IPI,\n" +
+"                                             context switch:\n" +
+"                                             2-10 us\n" +
+"     condition variable wake ..............  3-10 us\n" +
+"     SPSC ring, no lock at all ............  20-40 ns end to end\n" +
+"     TLB shootdown IPI ....................  2-10 us, all cores\n" +
+"     scheduler wakeup IPI .................  1-3 us\n" +
+"\n" +
+"\n" +
+"  x86 IS TSO - AND THAT IS A GIFT\n" +
+"  ==============================================================\n" +
+"   TSO = Total Store Order. x86 guarantees loads are not\n" +
+"   reordered with loads, stores not with stores, and a store is\n" +
+"   never reordered ahead of an older store. The ONLY permitted\n" +
+"   reordering is StoreLoad: a later load may pass an earlier\n" +
+"   store, because of the store buffer.\n" +
+"\n" +
+"   Consequence: on x86, an acquire-load and a release-store are\n" +
+"   ordinary MOV instructions. You pay nothing. Only seq_cst and\n" +
+"   the classic store-then-load handshake need a real MFENCE.\n" +
+"\n" +
+"   ARM64 is weakly ordered - you pay for LDAR and STLR. Code\n" +
+"   tuned on x86 and moved to Graviton will be both slower and,\n" +
+"   if you were sloppy, incorrect.\n" +
+"\n" +
+"\n" +
+"  THE ONLY SHARING PATTERN YOU SHOULD USE\n" +
+"  ==============================================================\n" +
+"   Single producer, single consumer, one direction, no locks:\n" +
+"\n" +
+"     producer core                   consumer core\n" +
+"     -------------                   -------------\n" +
+"     write payload to slot[head]     spin while tail == head\n" +
+"     store-release head++            load-acquire head\n" +
+"                                     read slot[tail]\n" +
+"                                     store tail++\n" +
+"\n" +
+"     head and tail MUST sit on separate 64-byte cache lines, or\n" +
+"     you have invented false sharing and the two cores will\n" +
+"     fight over one line forever:\n" +
+"\n" +
+"       alignas(64) std::atomic<size_t> head;\n" +
+"       alignas(64) std::atomic<size_t> tail;\n" +
+"\n" +
+"   Everything else - mutexes, condition variables, work-stealing\n" +
+"   queues, multi-producer rings - is a request for a syscall at\n" +
+"   the worst possible moment.";
+
+var INTERRUPTS = { head:["Name","Kind","Raised by","Cost","Where it goes"], rows:[
+["Hardware IRQ / MSI-X","asynchronous","a device, by writing to the local APIC over PCIe","1\u20133 \u00B5s entry","driver interrupt handler \u2192 schedules a softirq","cost"],
+["NET_RX_SOFTIRQ","deferred","the NIC driver's interrupt handler","2\u201310 \u00B5s","NAPI poll \u2192 GRO \u2192 ip_rcv \u2192 tcp_v4_rcv","cost"],
+["IPI \u2014 reschedule vector","asynchronous","another CPU core","1\u20133 \u00B5s","wake a thread that lives on a remote core","warn"],
+["IPI \u2014 TLB shootdown","asynchronous","another CPU core","2\u201310 \u00B5s, worse with more cores","INVLPG, then acknowledge back","cost"],
+["#PF \u2014 page fault","synchronous exception","the CPU itself, mid-instruction","minor 1\u20133 \u00B5s / major = milliseconds","kernel fault handler fixes the PTE and re-runs your instruction","cost"],
+["Local APIC timer","asynchronous","the per-core timer","~1 \u00B5s \u00D7 250\u20131000 Hz","scheduler tick and timer wheel. nohz_full removes it","warn"],
+["NMI","asynchronous, unmaskable","watchdog, or perf/PEBS sampling","~1 \u00B5s","cannot be blocked at all \u2014 profiling costs you here","warn"],
+["SMI","asynchronous, invisible","firmware / BIOS","10\u2013500 \u00B5s","System Management Mode. The OS never sees it. Count them in MSR 0x34","cost"],
+["SYSCALL","synchronous, voluntary","you","300\u2013700 ns with mitigations","MSR_LSTAR \u2192 kernel entry. Not an interrupt; you asked for it","warn"]]};
+
+var STAGES = [
+{ id:0, name:"Plain TCP application", ns:100000, tail:"5\u201350 ms", color:"cost",
+  verdict:"Everything below is a subtraction from this.",
+  lede:"epoll + recv() + malloc + a thread pool. One line of your code, seven layers of somebody else's.",
+  calls:["socket","bind","epoll_create1","epoll_ctl","epoll_wait","recvmsg","sendmsg"],
+  ascii:
+"   WIRE\n" +
+"     |\n" +
+"     v\n" +
+" [ NIC ]  DMA-writes the frame into a ring of buffers the driver\n" +
+"     |    handed it earlier. Physical addresses. No CPU involved.\n" +
+"     |\n" +
+"     +--> MSI-X INTERRUPT: the NIC posts a write to the local APIC\n" +
+"     |\n" +
+"     v\n" +
+" +--------------------------------------------------------------+\n" +
+" | ring 3 -> ring 0. CPU saves state, reads the IDT entry,      | 1-3 us\n" +
+" | jumps to the driver's handler. Your caches are now polluted. |\n" +
+" +--------------------------------------------------------------+\n" +
+"     v\n" +
+" +--------------------------------------------------------------+\n" +
+" | handler does almost nothing, raises NET_RX_SOFTIRQ           | 2-10 us\n" +
+" | NAPI poll -> allocate an sk_buff (slab alloc, can stall)     |\n" +
+" | GRO merge -> netif_receive_skb -> ip_rcv -> tcp_v4_rcv       |\n" +
+" | checksum, sequence numbers, reorder queue, ACK generation    |\n" +
+" | append the payload to the socket receive queue               |\n" +
+" +--------------------------------------------------------------+\n" +
+"     v\n" +
+" +--------------------------------------------------------------+\n" +
+" | sock_def_readable() -> wake_up_interruptible()               | 1-5 us\n" +
+" | thread marked runnable, put on a runqueue. If it lives on    |\n" +
+" | another core, send a reschedule IPI to that core.            |\n" +
+" +--------------------------------------------------------------+\n" +
+"     v   ... eventually the scheduler picks it ...\n" +
+" +--------------------------------------------------------------+\n" +
+" | CONTEXT SWITCH: switch_mm writes CR3 (TLB consequences),     | 1-3 us\n" +
+" | switch_to swaps registers and the kernel stack. Your L1, L2, | direct;\n" +
+" | TLB and branch predictor now belong to someone else.         | 10-30 us\n" +
+" +--------------------------------------------------------------+ of slow\n" +
+"     v                                                            running\n" +
+" +--------------------------------------------------------------+ after\n" +
+" | epoll_wait returns. You call recvmsg: SYSCALL again,         | 0.3-0.7\n" +
+" | copy_to_user memcpy's the bytes into your buffer.            | us each\n" +
+" +--------------------------------------------------------------+ way\n" +
+"     v\n" +
+"   YOUR CODE finally sees byte 0",
+  points:[["Interrupts","Hardware seizing the CPU is expensive and, worse, unpredictable."],
+          ["Sleeping and waking","Blocking means paying the scheduler \u2014 and possibly an IPI \u2014 to wake you later."],
+          ["Crossing the wall","Every syscall is a privilege transition, and since Meltdown, a CR3 write."],
+          ["Copying","The same bytes are moved two or three times."],
+          ["Cold caches","By the time you run, your working set has been evicted by everything above."]],
+  res:[["Cloudflare \u2014 How to receive a million packets a second","https://blog.cloudflare.com/how-to-receive-a-million-packets/"],
+       ["Illustrated walkthrough of the Linux receive path","https://blog.packagecloud.io/monitoring-tuning-linux-networking-stack-receiving-data/"],
+       ["Kernel docs \u2014 networking","https://docs.kernel.org/networking/index.html"],
+       ["Brendan Gregg \u2014 Linux performance","https://www.brendangregg.com/linuxperf.html"]] },
+
+{ id:1, name:"Clean up your own code", ns:45000, tail:"1\u20135 ms", color:"warn",
+  verdict:"You are not yet good enough for the kernel to be your problem.",
+  lede:"Before blaming Linux, delete everything in the hot path that allocates, locks, or prints.",
+  calls:["brk","mmap(MAP_ANONYMOUS)","futex","write"],
+  ascii:
+"  CRIME                      WHAT IT REALLY IS\n" +
+"  -------------------------  ------------------------------------\n" +
+"  malloc()                   50 ns from the free list; 50 us when\n" +
+"                             it calls brk() or mmap() for more\n" +
+"  first write to new memory  #PF page fault -> ring 0 -> kernel\n" +
+"                             finds a frame, ZEROES it, edits the\n" +
+"                             PTE, returns. 1-3 us, unscheduled.\n" +
+"  contended mutex            futex(FUTEX_WAIT) -> sleep -> wake\n" +
+"                             -> IPI -> context switch. 2-10 us.\n" +
+"  std::unordered_map         a linked list per bucket, by spec.\n" +
+"                             3-5 dependent misses, ~300 ns.\n" +
+"  printf / log line          format + lock + write() syscall\n" +
+"  virtual call               indirect branch the predictor may miss\n" +
+"  shared_ptr copy            lock xadd on a shared line: 40-100 ns\n" +
+"                             if another core has touched it",
+  body:[["Why the first touch is the expensive one","malloc gets address space, not memory. The kernel hands you page table entries marked not-present. Your first write raises #PF, a synchronous CPU exception. The handler picks a physical frame, zeroes it \u2014 mandatory, or you would read another process's data \u2014 installs the entry, and restarts your instruction. You never asked for this and it happens whenever it feels like it."],
+        ["The fix","Allocate everything at startup and never again: pools, fixed arrays, ring buffers. Replace every shared-state lock with a single-producer / single-consumer ring. Log by writing a raw binary struct into a ring that a different core formats. One thread per job, pinned; no thread pools, no work stealing."]],
+  res:[["Erik Rigtorp \u2014 lock-free SPSC queue","https://rigtorp.se/ringbuffer/"],
+       ["Carl Cook \u2014 When a Microsecond Is an Eternity (CppCon 2017)","https://www.youtube.com/results?search_query=Carl+Cook+When+a+Microsecond+Is+an+Eternity+CppCon+2017"],
+       ["Mike Acton \u2014 Data-Oriented Design and C++ (CppCon 2014)","https://www.youtube.com/results?search_query=Mike+Acton+Data-Oriented+Design+and+C%2B%2B+CppCon+2014"]] },
+
+{ id:2, name:"Own the CPU", ns:28000, tail:"300 \u00B5s", color:"warn",
+  verdict:"The average barely moves. The tail collapses.",
+  lede:"Linux thinks your core is a shared resource. Take it away at boot.",
+  calls:["sched_setaffinity","sched_setscheduler(SCHED_FIFO)","prctl(PR_SET_TIMERSLACK)","write() to /dev/cpu_dma_latency"],
+  ascii:
+"  WHAT STEALS YOUR CORE MID-TICK\n" +
+"  ==============================================================\n" +
+"   another task is scheduled ........ you lose a full time slice\n" +
+"   kernel housekeeping .............. RCU callbacks, timer wheel,\n" +
+"                                      workqueues, kswapd: 10s of us\n" +
+"   an IRQ from an unrelated device .. lands on your core by default\n" +
+"   the local APIC timer ............. 250-1000 interrupts/second\n" +
+"   a TLB shootdown IPI .............. another thread called munmap\n" +
+"   an SMI ........................... 100+ us, firmware, invisible\n" +
+"   the CPU deciding you are idle .... <-- the assassin\n" +
+"\n" +
+"\n" +
+"  THE SLEEP PROBLEM\n" +
+"  ==============================================================\n" +
+"    C0 running -> C1 -> C1E -> C6 -> package C6\n" +
+"    exit cost:      1us   10us  50us    100us+\n" +
+"\n" +
+"    Your loop is idle 99.99% of the time between ticks. So the\n" +
+"    core is ALWAYS asleep at the moment the tick arrives. This\n" +
+"    single mechanism can be your entire p99.\n" +
+"\n" +
+"\n" +
+"  THE BOOT LINE\n" +
+"  ==============================================================\n" +
+"   isolcpus=4-11 nohz_full=4-11 rcu_nocbs=4-11 irqaffinity=0-3\n" +
+"   intel_idle.max_cstate=0 processor.max_cstate=0 idle=poll\n" +
+"   nosoftlockup nmi_watchdog=0 audit=0 transparent_hugepage=madvise\n" +
+"\n" +
+"     isolcpus     the scheduler will not place other work here\n" +
+"     nohz_full    stop the periodic timer tick on these cores\n" +
+"     rcu_nocbs    move RCU callbacks to the housekeeping cores\n" +
+"     irqaffinity  send every hardware IRQ to cores 0-3\n" +
+"     idle=poll    never sleep, spin. burns 100 W, saves 50 us",
+  body:[["The single highest-value line of code","Open /dev/cpu_dma_latency, write a 0 as a 32-bit int, and hold the file descriptor open. That is a contract with the kernel's power-management quality-of-service layer: no core may enter a sleep state whose exit latency exceeds 0 \u00B5s. Close the fd and the promise evaporates \u2014 which catches everyone who sets it from a shell script that then exits."],
+        ["Also","sched_setaffinity to pin permanently. Disable hyperthreading in BIOS, or leave the sibling core empty \u2014 both siblings share one L1 and one set of execution ports. In BIOS turn off Turbo, C-states, SpeedStep and every power-efficiency option, and set fans to maximum: thermal throttling is a jitter source."],
+        ["Verify, do not trust","cyclictest -p99 -m -t1 -a4 should show a max under 5 \u00B5s. Interrupt counts for your cores in /proc/interrupts should be flat across a run. Read MSR 0x34 before and after \u2014 it counts firmware interrupts the OS can neither see nor prevent. Some server BIOSes fire them every few seconds."]],
+  res:[["Erik Rigtorp \u2014 Low latency tuning guide","https://rigtorp.se/low-latency-guide/"],
+       ["LWN \u2014 the tickless kernel / nohz_full","https://lwn.net/Articles/549580/"],
+       ["LWN \u2014 CPU isolation","https://lwn.net/Articles/816298/"],
+       ["Kernel parameters reference","https://docs.kernel.org/admin-guide/kernel-parameters.html"],
+       ["osnoise and timerlat tracers","https://docs.kernel.org/trace/osnoise-tracer.html"]] },
+
+{ id:3, name:"Stop sleeping on the socket", ns:14000, tail:"80 \u00B5s", color:"warn",
+  verdict:"Spinning is not wasteful. It is the point.",
+  lede:"Waking a thread costs more than the work the thread is about to do.",
+  calls:["setsockopt(SO_BUSY_POLL)","recvmsg(MSG_DONTWAIT)","recvmmsg","io_uring_enter","membarrier"],
+  ascii:
+"  BLOCKING                        POLLING\n" +
+"  ------------------------------  ----------------------------\n" +
+"  epoll_wait -> schedule()        while (true) {\n" +
+"     thread sleeps                    if (ring[i].ready) {\n" +
+"        |                                 handle(ring[i]);\n" +
+"  packet arrives                      }\n" +
+"        |                           }\n" +
+"  MSI-X IRQ -> softirq\n" +
+"        |                         you learn about the packet the\n" +
+"  wake_up() -> runqueue           instant the DMA write lands\n" +
+"        |                         and invalidates your line\n" +
+"  reschedule IPI to your core\n" +
+"        |                         cost:     20-80 ns\n" +
+"  CONTEXT SWITCH (CR3, TLB)       variance: near zero\n" +
+"        |\n" +
+"  SYSCALL recvmsg + copy_to_user\n" +
+"\n" +
+"  cost: 5-15 us, variance unbounded",
+  body:[["Escalating commitment","1) setsockopt(SO_BUSY_POLL) \u2014 the kernel spins inside the driver instead of sleeping. One line, gets you to ~8 \u00B5s. 2) recvmsg(MSG_DONTWAIT) in a tight loop \u2014 no sleeping, but still 300\u2013700 ns of syscall per attempt. 3) AF_XDP \u2014 the kernel maps a shared memory region between you and the NIC; no syscall, no copy, ~2\u20133 \u00B5s, mainline and free. 4) Full bypass, next stage."],
+        ["io_uring is the wrong tool here","io_uring is excellent and does remove syscalls from the steady state \u2014 but it is built for throughput and for hiding I/O concurrency, not for a single-flow latency race. Its rings still feed the kernel networking stack. Use it for your logging and disk path, not your feed handler."]],
+  res:[["LWN \u2014 Accelerating networking with AF_XDP","https://lwn.net/Articles/750845/"],
+       ["LWN \u2014 kernel page-table isolation and its cost","https://lwn.net/Articles/741878/"],
+       ["LWN \u2014 Ringing in a new asynchronous I/O API (io_uring)","https://lwn.net/Articles/776703/"],
+       ["AF_XDP kernel documentation","https://docs.kernel.org/networking/af_xdp.html"]] },
+
+{ id:4, name:"Nail down memory", ns:11000, tail:"40 \u00B5s", color:"warn",
+  verdict:"Make it physically impossible for the MMU to surprise you.",
+  lede:"No faults, no walks, no remote sockets, no shared L3. Everything decided at startup.",
+  calls:["mlockall(MCL_CURRENT|MCL_FUTURE)","mmap(MAP_HUGETLB|MAP_POPULATE|MAP_LOCKED)","madvise","mbind","set_mempolicy"],
+  ascii:
+"  THE FIVE THINGS, IN ORDER\n" +
+"  ==============================================================\n" +
+"\n" +
+"  1. NEVER FAULT\n" +
+"       mlockall(MCL_CURRENT | MCL_FUTURE)\n" +
+"       pins every page in physical RAM, forever. No swap, no\n" +
+"       lazy allocation, no #PF. Needs RLIMIT_MEMLOCK raised.\n" +
+"\n" +
+"  2. PRE-TOUCH\n" +
+"       write one byte per 4 KB across every buffer at startup so\n" +
+"       the faults happen NOW. Recurse 1 MB deep and return to do\n" +
+"       the same for your stack - it is lazily mapped too. Or\n" +
+"       just pass MAP_POPULATE to mmap.\n" +
+"\n" +
+"  3. FEWER, BIGGER PAGES\n" +
+"       reserve 1 GB hugepages at boot, mmap with MAP_HUGETLB.\n" +
+"       8 MB book: 2,000 TLB entries -> 1 that never leaves.\n" +
+"       And the prefetcher stops caring about page boundaries.\n" +
+"       Do it for your CODE too, via libhugetlbfs, if your text\n" +
+"       segment is large.\n" +
+"\n" +
+"       ! use explicit hugetlbfs, NOT transparent hugepages.\n" +
+"       ! khugepaged compacts memory in the background and\n" +
+"       ! issues TLB shootdown IPIs across every core.\n" +
+"\n" +
+"  4. ONE SOCKET\n" +
+"       the NIC is physically wired into one socket's PCIe lanes:\n" +
+"         cat /sys/class/net/eth0/device/numa_node\n" +
+"       put the polling core, the packet buffers and the book on\n" +
+"       that same node:\n" +
+"         numactl --cpunodebind=0 --membind=0 ./trader\n" +
+"       a cross-socket hop is +80-150 ns AND much worse variance.\n" +
+"\n" +
+"  5. FENCE THE L3\n" +
+"       L3 is shared by every core on the socket, so a logging\n" +
+"       process can evict your order book. Intel CAT (the pqos\n" +
+"       tool) reserves L3 ways for your core so nobody else may\n" +
+"       use them. MBA does the same for memory bandwidth.",
+  body:[["False sharing","Two threads writing different variables that happen to land in the same 64-byte line will ping-pong that line between cores at 40\u2013100 ns a bounce, for no logical reason. Pad shared structures with alignas(64). Some prefetchers work on 128-byte pairs, so 128 is safer for the hottest ones. Find it with perf c2c."],
+        ["Layout beats algorithms here","One cache miss is 80 ns; a comparison is a fraction of a nanosecond. An O(n) scan over a contiguous array will beat an O(log n) tree that chases pointers, for any n you actually have. Store data inline, use 32-bit slab indices instead of 64-bit pointers, and let the prefetcher work."]],
+  res:[["Drepper \u2014 What Every Programmer Should Know About Memory (PDF)","https://www.akkadia.org/drepper/cpumemory.pdf"],
+       ["7-CPU \u2014 measured cache, TLB and memory latencies","https://www.7-cpu.com/"],
+       ["LWN \u2014 hugepages, part 1: introduction","https://lwn.net/Articles/374424/"],
+       ["Kernel docs \u2014 HugeTLB pages","https://docs.kernel.org/admin-guide/mm/hugetlbpage.html"],
+       ["Denis Bakhvalov \u2014 easyperf","https://easyperf.net/blog/"],
+       ["Travis Downs \u2014 Performance Matters","https://travisdowns.github.io/"]] },
+
+{ id:5, name:"Bypass the kernel", ns:4000, tail:"9 \u00B5s", color:"fixed",
+  verdict:"The one stage that moves the average, not just the tail.",
+  lede:"Map the NIC's receive ring straight into your process. No interrupt, no ring 0, no copy, no syscall.",
+  calls:["mmap of the NIC BAR / shared region","ioctl for setup only, never in the loop","(everything else disappears)"],
+  ascii:
+"  BEFORE                        AFTER\n" +
+"  ----------------------------  ------------------------------\n" +
+"  NIC -> DMA -> kernel buffer   NIC -> DMA -> YOUR buffer\n" +
+"      -> MSI-X interrupt            (that is the entire list)\n" +
+"      -> NET_RX_SOFTIRQ\n" +
+"      -> sk_buff allocation     your loop, in ring 3:\n" +
+"      -> ip_rcv / tcp_v4_rcv      while (evq[i].flag == 0) { }\n" +
+"      -> socket receive queue     parse(pkt_ring[i]);\n" +
+"      -> wake_up + IPI\n" +
+"      -> CONTEXT SWITCH         ~250-500 ns, wire to your code\n" +
+"      -> SYSCALL + copy_to_user\n" +
+"  ~10-15 us\n" +
+"\n" +
+"\n" +
+"  HOW BYTES GET FROM GLASS INTO YOUR L1\n" +
+"  ==============================================================\n" +
+"  1. photons -> transceiver -> PHY decodes .......... 50-100 ns\n" +
+"  2. MAC checks the frame check sequence\n" +
+"  3. NIC issues a DMA WRITE over PCIe. It is a bus master: it\n" +
+"     emits memory-write packets to a PHYSICAL address the driver\n" +
+"     gave it at setup. No CPU involvement, and no translation on\n" +
+"     your side (or via the IOMMU, if enabled).\n" +
+"  4. Intel DDIO steers that write into L3 rather than DRAM. Your\n" +
+"     poll loop reads it at ~20 ns instead of ~80 ns, with far\n" +
+"     less variance. This is why DDIO matters.\n" +
+"  5. NIC writes a small event descriptor to a second ring. Your\n" +
+"     loop is spinning on exactly that cache line. The DMA write\n" +
+"     invalidates it - the coherence fabric does this for you -\n" +
+"     and your next load pulls the new value from L3.\n" +
+"\n" +
+"  Note what is absent: no interrupt, no privilege change, no\n" +
+"  page fault, no copy, no scheduler. Just a line going Invalid.\n" +
+"\n" +
+"\n" +
+"  IOMMU\n" +
+"  ==============================================================\n" +
+"   With the IOMMU on, device DMA addresses are themselves\n" +
+"   translated, through their own translation caches. Safer, since\n" +
+"   a buggy device cannot scribble over arbitrary RAM, but it adds\n" +
+"   a miss path. Most HFT boxes run iommu=pt (passthrough) to keep\n" +
+"   the protection domain while skipping translation for trusted\n" +
+"   devices.",
+  table:{ head:["Option","Latency","Notes"], rows:[
+    ["AF_XDP","2\u20133 \u00B5s","Free, mainline, ordinary NIC. Start here."],
+    ["DPDK","1.5\u20132 \u00B5s","Free, broad NIC support. Built for throughput; heavier than needed for one flow."],
+    ["Onload (LD_PRELOAD)","~1.2 \u00B5s","AMD/Solarflare. Your existing socket code, zero source changes."],
+    ["ef_vi","700\u2013900 ns","Raw layer-2 API. You write the Ethernet/IP/UDP handling yourself."],
+    ["exanic / libexanic","~700 ns","Cisco/Exablaze. Lets you read a frame while it is still arriving."],
+    ["RDMA (intra-firm only)","0.6\u20132 \u00B5s","One-sided read/write; the remote CPU is never interrupted."]] },
+  body:[["Cut-through receive","A 1500-byte frame takes 1.2 \u00B5s to serialize at 10G. If your trigger field sits at byte 40, you can parse and decide roughly 1.1 \u00B5s before the packet has finished arriving. exanic exposes this directly; ef_vi gets close with care. Free latency that appears in no datasheet."],
+        ["What you give up","You now own UDP multicast handling, sequence-gap detection, A/B feed arbitration, and TCP for order entry (or you buy the vendor's TCP-in-firmware). No tcpdump, no netstat, no kernel doing anything on your behalf. Budget for that engineering, not just the NIC."]],
+  res:[["Neugebauer et al. \u2014 Understanding PCIe Performance for End Host Networking","https://www.cl.cam.ac.uk/research/srg/netos/projects/pcie-bench/"],
+       ["DPDK programmer's guide","https://doc.dpdk.org/guides/prog_guide/"],
+       ["LWN \u2014 XDP and eBPF networking index","https://lwn.net/Kernel/Index/#Networking-XDP"],
+       ["exanic-software (source, readable driver)","https://github.com/cisco/exanic-software"],
+       ["Kernel docs \u2014 the DMA API","https://docs.kernel.org/core-api/dma-api.html"]] },
+
+{ id:6, name:"Fix the data structure", ns:2500, tail:"6 \u00B5s", color:"fixed",
+  verdict:"Now the slowest thing you own is your own order book.",
+  lede:"The textbook book \u2014 a balanced tree of price levels holding linked lists \u2014 pays twice on every message.",
+  calls:[],
+  ascii:
+"  THE CLASSIC BOOK, AND WHY IT LOSES\n" +
+"  ==============================================================\n" +
+"    tree search    root -> ... -> leaf   O(log n) pointer hops\n" +
+"                   each hop is a cache miss AND possibly a TLB\n" +
+"                   miss: ~80-380 ns each\n" +
+"                   20 levels deep -> ~500 ns just to FIND it\n" +
+"\n" +
+"    list walk      chase more pointers to the insertion point\n" +
+"\n" +
+"    Pointer chasing is the worst access pattern that exists. The\n" +
+"    CPU cannot prefetch, because it does not know the next\n" +
+"    address until the current load returns. Every hop is a full\n" +
+"    memory latency, strictly serialized. No instruction-level\n" +
+"    parallelism is available to rescue you.\n" +
+"\n" +
+"\n" +
+"  THE FLAT BOOK\n" +
+"  ==============================================================\n" +
+"    price is an integer on a fixed tick grid:\n" +
+"        idx = (price - base) / tick\n" +
+"        levels[idx]           O(1), one cache line, prefetchable,\n" +
+"                              no tree, no comparisons\n" +
+"\n" +
+"    top ~20 levels stay resident in L1\n" +
+"    order data stored INLINE in the node, not behind a pointer\n" +
+"    orderID -> slot via a flat open-addressed hash\n" +
+"        (never std::unordered_map: a linked list per bucket)\n" +
+"    32-bit slab indices instead of 64-bit pointers\n" +
+"        -> half the memory, twice the cache density\n" +
+"    whole structure on one 1 GB hugepage -> zero TLB pressure",
+  body:[["Where the arXiv paper lands","Yoon, The World's Fastest Matching Engine Algorithm (arXiv 2606.01183, June 2026) attacks exactly this layer. Be precise about what it is: an exchange-side matching engine, not a trader's book \u2014 but the storage argument transfers directly. Claimed: 33.2 M order messages/sec on one core at sub-microsecond median end-to-end latency, and ~640 M/s across 10,000 symbols on a 96-core commodity server."],
+        ["Its two ideas","A Priority-Indicated Node resolves where a new order belongs in O(1) directly from priority indicators, instead of the O(log n) comparisons a heap needs. A neighbour-aware balanced tree splices or removes a price level in O(1) reference writes using the in-order neighbours that electronic trading already supplies, then rebalances along a single path. Both preserve strict price\u2013time priority."],
+        ["The tell","Their measured latency distribution is explicitly multi-modal, reflecting memory-hierarchy effects, with hot orders concentrated in L1-resident nodes and most operations staying in the L1 peak even under bursts. So the win is not asymptotic complexity \u2014 it is keeping the working set in L1 and laying it out contiguously. Treat the specific benchmark numbers with normal scepticism (self-published, vendor-affiliated); the design direction matches what production books already do."]],
+  res:[["Yoon \u2014 The World's Fastest Matching Engine Algorithm (arXiv 2606.01183)","https://arxiv.org/abs/2606.01183"],
+       ["Jericevich, Sing, Gebbie \u2014 CoinTossX open-source matching engine","https://arxiv.org/abs/2102.10925"],
+       ["Liquibook \u2014 conventional tree-of-lists book (source)","https://github.com/objectcomputing/liquibook"],
+       ["WK Selph \u2014 how to build a fast limit order book","https://web.archive.org/web/20110219163448/http://howtohft.wordpress.com/2011/02/15/how-to-build-a-fast-limit-order-book/"]] },
+
+{ id:7, name:"Pre-build the send \u2014 PIO and CTPIO", ns:1300, tail:"4 \u00B5s", color:"fixed",
+  verdict:"Never make the NIC read back from your memory after you have decided.",
+  lede:"The two ways bytes reach a NIC, why one of them costs a PCIe round trip, and what cut-through buys you.",
+  calls:["mmap of the NIC BAR (setup only)","then plain MOV instructions \u2014 no syscall at all"],
+  ascii:
+"  FIRST: WHAT MMIO IS\n" +
+"  ==============================================================\n" +
+"   MMIO = Memory-Mapped I/O.\n" +
+"\n" +
+"   A PCIe device exposes its registers and buffers as ranges of\n" +
+"   physical addresses called BARs (Base Address Registers). The\n" +
+"   kernel maps a BAR into your virtual address space.\n" +
+"\n" +
+"   Writing to that address does NOT go to DRAM. The memory\n" +
+"   controller sees the address fall inside the device's range and\n" +
+"   routes it onto PCIe as a TLP (Transaction Layer Packet).\n" +
+"\n" +
+"     posted write    (CPU -> device)  ~150 ns, fire and forget\n" +
+"     non-posted read (CPU <- device)  500 ns - 1 us, you STALL\n" +
+"                                      waiting for a completion\n" +
+"\n" +
+"   Rule: never read a NIC register on the hot path. Ever.\n" +
+"\n" +
+"\n" +
+"  WRITE-COMBINING - WHY PIO IS NOT NAIVELY SLOW\n" +
+"  ==============================================================\n" +
+"   By default each 8-byte store to MMIO becomes its own tiny\n" +
+"   PCIe packet. 64 bytes of header = 8 packets = disaster.\n" +
+"\n" +
+"   Mark the BAR as WC (write-combining) memory type via the PAT\n" +
+"   (Page Attribute Table). The CPU then batches your stores into\n" +
+"   64-byte write-combining buffers and emits ONE full-width TLP.\n" +
+"\n" +
+"   This is the entire reason PIO is viable.\n" +
+"\n" +
+"\n" +
+"  DMA vs PIO vs CTPIO\n" +
+"  ==============================================================\n" +
+"\n" +
+"  DMA (normal)              the NIC PULLS\n" +
+"  ------------------------------------------------------------\n" +
+"    you write the frame into RAM\n" +
+"    you write a descriptor into a ring in RAM\n" +
+"    you ring the doorbell (one posted MMIO write)\n" +
+"       |\n" +
+"    NIC reads the descriptor over PCIe     <-- round trip\n" +
+"    NIC reads your frame buffer over PCIe  <-- round trip\n" +
+"    NIC transmits\n" +
+"    ~700 ns - 1 us.  Scales beautifully. Terrible latency.\n" +
+"\n" +
+"\n" +
+"  PIO - Programmed I/O       the CPU PUSHES\n" +
+"  ------------------------------------------------------------\n" +
+"    you MOV the frame bytes straight into the NIC's BAR window.\n" +
+"    No descriptor. No doorbell. No PCIe read at all.\n" +
+"    ~250-400 ns.  Burns CPU cycles. Small frames only.\n" +
+"\n" +
+"\n" +
+"  CTPIO - Cut-Through PIO    the CPU PUSHES, NIC STARTS EARLY\n" +
+"  ------------------------------------------------------------\n" +
+"    same as PIO, except the NIC does not wait for the whole\n" +
+"    frame. Once ~40 bytes have landed in the BAR it begins\n" +
+"    serializing them onto the wire, while you are still writing\n" +
+"    the rest.\n" +
+"\n" +
+"      CPU:   [--- writing frame into BAR ---]\n" +
+"      wire:        [--- serializing onto fibre ---]\n" +
+"                   ^ overlap. this is the win.\n" +
+"\n" +
+"    ~150-250 ns.  AMD/Solarflare call it CTPIO; Cisco's firmware\n" +
+"    TX engine reaches roughly 100 ns.\n" +
+"\n" +
+"    Caveat: if the CPU stalls mid-frame, the NIC has already\n" +
+"    started sending and cannot stop. It terminates the frame\n" +
+"    with a bad FCS and the switch drops it. You must tolerate,\n" +
+"    and count, those.",
+  body:[["1 \u2014 Pre-templated frames","Build the whole Ethernet + IP + TCP + exchange-protocol frame in advance: session IDs, sequence numbers, partial checksums, everything. At decision time you overwrite about eight bytes \u2014 price, quantity, side \u2014 and fire. This is mandatory for CTPIO, because you are streaming the frame out as you write it and have no time to construct anything."],
+        ["2 \u2014 Precomputed order matrix","Go further: encode a complete, ready-to-send order for every plausible price and size, and keep the matrix resident in L1. The decision degenerates into an array index. Hot path becomes parse \u2192 index \u2192 send."],
+        ["3 \u2014 Speculative send and frame poisoning","The nuclear option, and the same mechanism as the CTPIO caveat above, used deliberately. Start transmitting before the decision is final \u2014 the headers take ~100 ns to serialize and are identical either way. If you decide not to trade, deliberately end the frame with a bad FCS; the switch and the exchange silently discard it. You have bought the entire header serialization time. Several exchanges now monitor and penalise this; read the rulebook first."],
+        ["And the part you cannot skip","Pre-trade risk checks are legally required (SEC Rule 15c3-5). They must be branchless table lookups sitting in L1, not a call to a risk service."]],
+  res:[["Neugebauer et al. \u2014 PCIe performance: posted writes, TLPs and DDIO, measured","https://www.cl.cam.ac.uk/research/srg/netos/projects/pcie-bench/"],
+       ["AMD/Solarflare Onload and ef_vi user guides (CTPIO chapter)","https://www.xilinx.com/support/documentation-navigation/onload.html"],
+       ["Kernel docs \u2014 memory types, PAT and write-combining","https://docs.kernel.org/arch/x86/pat.html"],
+       ["Erik Rigtorp \u2014 measuring MMIO and PCIe latency","https://rigtorp.se/"],
+       ["SEC Rule 15c3-5 \u2014 market access rule","https://www.sec.gov/rules/final/2010/34-63241.pdf"]] },
+
+{ id:8, name:"Keep the caches warm", ns:1300, tail:"1.6 \u00B5s", color:"hw",
+  verdict:"The average does not move. p99 falls by 10\u00D7. This is the money.",
+  lede:"Your fast path runs fifty times a day. It is cold every single time it matters \u2014 and the ticks that matter are the rare ones.",
+  calls:[],
+  ascii:
+"  WHAT IS COLD WHEN THE TICK FINALLY ARRIVES\n" +
+"  ==============================================================\n" +
+"   L1i .............. your code is not resident ... ~10 us of misses\n" +
+"   L1d / L2 ......... book evicted to L3 or DRAM\n" +
+"   dTLB / iTLB ...... translations gone ........... page walks\n" +
+"   branch predictor . mispredicts everything ...... ~15 cycles each\n" +
+"   HW prefetchers ... no learned stride pattern\n" +
+"   store buffer ..... cold, nothing to forward\n" +
+"\n" +
+"     result:   p50 = 1.3 us       p99 = 15 us\n" +
+"                                  ^^^^^^^^^^^\n" +
+"                                  and the p99 IS the trade\n" +
+"\n" +
+"\n" +
+"  SHADOW TRADING\n" +
+"  ==============================================================\n" +
+"   every few hundred microseconds, push a synthetic tick through\n" +
+"   the REAL code path:\n" +
+"\n" +
+"     synthetic tick -> real parser -> real book update\n" +
+"        -> real strategy -> real order encoder -> [SUPPRESSED]\n" +
+"                                                    ^\n" +
+"                            do not write the last bytes into the\n" +
+"                            BAR, or send it with a poison FCS\n" +
+"\n" +
+"   everything stays hot. the predictor stays trained. the TLB\n" +
+"   entries stay live. p99 collapses onto p50.\n" +
+"\n" +
+"   cost: cycles you were not using anyway.",
+  body:[["Why this is the HFT-specific one","Nobody outside this industry designs for a hot path that executes fifty times a day. Web servers and databases are warm by construction. You are not \u2014 and this is worth roughly a 10\u00D7 improvement on the only percentile that determines your P&L."],
+        ["Do it honestly","The shadow path must be genuinely the same code. A separate warmup function that diverges from production is worse than useless: it warms the wrong cache lines and gives you false confidence. Also park a warmer thread on a different core that periodically touches the book so it stays resident in L3 \u2014 but carefully, because that thread's loads put the lines in Shared state and your first write will then need a Request-For-Ownership."]],
+  res:[["Carl Cook \u2014 When a Microsecond Is an Eternity (live cache-warming demo)","https://www.youtube.com/results?search_query=Carl+Cook+When+a+Microsecond+Is+an+Eternity+CppCon+2017"],
+       ["David Gross \u2014 Trading at Light Speed (Meeting C++ 2022)","https://www.youtube.com/results?search_query=David+Gross+Trading+at+Light+Speed+low+latency+C%2B%2B"],
+       ["Nimrod Sapir \u2014 HFT and Ultra Low Latency Techniques (CppCon 2020)","https://www.youtube.com/results?search_query=Nimrod+Sapir+High+Frequency+Trading+Ultra+Low+Latency"]] },
+
+{ id:9, name:"Move it into hardware", ns:150, tail:"\u00B12 ns", color:"hw",
+  verdict:"At some point you are paying for the CPU to fetch instructions at all.",
+  lede:"A pipeline where every stage is one clock tick and the jitter is measured in nanoseconds.",
+  calls:[],
+  ascii:
+"  FPGA \"BUMP IN THE WIRE\"\n" +
+"  ==============================================================\n" +
+"   wire -> MAC -> protocol parser -> book in on-chip block RAM\n" +
+"        -> trigger logic -> order generator -> wire\n" +
+"\n" +
+"   No instruction fetch. No cache. No TLB. No scheduler.\n" +
+"   Every stage is logic clocked at 300-500 MHz.\n" +
+"\n" +
+"     full tick-to-trade ....  80-250 ns\n" +
+"     simple trigger box ....   30-50 ns\n" +
+"     jitter ................      +-2 ns   <-- the real product\n" +
+"\n" +
+"\n" +
+"  THE HYBRID (what most firms actually run)\n" +
+"  ==============================================================\n" +
+"        +----------------------------------------------+\n" +
+" feed ->| FPGA: parse, build book, fire the order      |-> exchange\n" +
+"        +--------+-------------------------^-----------+\n" +
+"                 | shadow copy of book     | enable/disable,\n" +
+"                 v  (DMA to host)          | price limits, size\n" +
+"        +--------+-------------------------+-----------+\n" +
+"        | CPU: the actual strategy, in C++.            |\n" +
+"        | Slower, but smart. Writes parameters into    |\n" +
+"        | FPGA registers over PCIe (posted MMIO).      |\n" +
+"        +----------------------------------------------+\n" +
+"\n" +
+"   FPGA is the reflex. CPU is the brain.\n" +
+"\n" +
+"\n" +
+"  AND THE WIRE ITSELF\n" +
+"  ==============================================================\n" +
+"   layer-1 switch fan-out (Arista 7130) ......    4-5 ns\n" +
+"   cut-through L2/L3 switch ..................  350-450 ns\n" +
+"   store-and-forward switch ..................  microseconds\n" +
+"   fibre (refractive index 1.47) .............  4.9 ns/m\n" +
+"   microwave / free space ....................  3.3 ns/m\n" +
+"   hollow-core fibre .........................  ~3.5 ns/m",
+  res:[["Enyx \u2014 FPGA market data and trading IP","https://www.enyx.com/"],
+       ["Arista 7130 layer-1 / FPGA platform","https://www.arista.com/en/products/7130-series"],
+       ["Xilinx Alveo \u2014 low-latency trading reference designs","https://www.xilinx.com/applications/data-center/financial-technology.html"],
+       ["Algo-Logic \u2014 FPGA order books","https://algo-logic.com/"]] }
+];
+
+var MEASURE =
+"  YOU CANNOT SELF-REPORT YOUR OWN LATENCY.\n" +
+"  Your timestamps live inside the thing you are measuring.\n" +
+"  ==============================================================\n" +
+"\n" +
+"   ground truth   a passive tap into a layer-1 switch with its\n" +
+"                  own timestamping (Arista MetaWatch, Nexus 3550,\n" +
+"                  Corvil, Pico). True wire-to-wire, independent\n" +
+"                  of your code. This is what the exchange and\n" +
+"                  your compliance team believe.\n" +
+"\n" +
+"   clock          PTP grandmaster disciplined to GPS, via ptp4l\n" +
+"                  and phc2sys. White Rabbit for sub-nanosecond.\n" +
+"                  NIC hardware timestamps via SO_TIMESTAMPING.\n" +
+"\n" +
+"   in-process     RDTSCP only: ~20 cycles, invariant counter.\n" +
+"                  NEVER clock_gettime in the loop - even the\n" +
+"                  vDSO path is ~20 ns and reads a shared page\n" +
+"                  another core may be updating. Dump raw cycle\n" +
+"                  counts into a ring buffer, convert offline.\n" +
+"\n" +
+"   report         FULL HISTOGRAMS. p50 is a marketing number.\n" +
+"\n" +
+"     1 us median / 40 us p99.9  LOSES TO  3 us median / 4 us p99.9\n" +
+"\n" +
+"   tools          perf + PEBS ....... precise instruction blame\n" +
+"                  toplev.py ......... which execution resource is\n" +
+"                                      actually the bottleneck\n" +
+"                  perf c2c .......... false sharing, HITM events\n" +
+"                  bpftrace .......... which syscalls actually fired\n" +
+"                  Processor Trace ... tail-latency forensics\n" +
+"                  cyclictest,\n" +
+"                  hwlatdetect,\n" +
+"                  osnoise ........... where the jitter comes from";
+
+var SYSCALLS = { head:["Call","What it buys you","Stage"], rows:[
+["mlockall(MCL_CURRENT|MCL_FUTURE)","no page faults, ever \u2014 pins every page in physical RAM","04"],
+["mmap(MAP_HUGETLB|MAP_POPULATE|MAP_LOCKED)","1 GB pages, pre-faulted and pinned, in one call","04"],
+["madvise(MADV_HUGEPAGE / MADV_DONTNEED)","page-size hints. Avoid DONTNEED at runtime \u2014 it shoots down TLBs","04"],
+["mbind / set_mempolicy","force allocations onto the NUMA node your NIC lives on","04"],
+["sched_setaffinity","pin a thread to one isolated core, permanently","02"],
+["sched_setscheduler(SCHED_FIFO)","real-time priority; watch sched_rt_runtime_us throttling","02"],
+["prctl(PR_SET_TIMERSLACK, 0)","stop the kernel batching your timers by up to 50 \u00B5s","02"],
+["write() to /dev/cpu_dma_latency","forbid deep CPU sleep states while the fd stays open","02"],
+["setsockopt(SO_BUSY_POLL)","kernel spins in the driver instead of sleeping","03"],
+["setsockopt(SO_TIMESTAMPING)","NIC hardware timestamps, for honest measurement","meas"],
+["recvmsg(MSG_DONTWAIT) / recvmmsg","non-blocking, batched receive \u2014 still one syscall per attempt","03"],
+["futex","what every contended mutex and condvar bottoms out in. Avoid entirely","01"],
+["membarrier(MEMBARRIER_CMD_PRIVATE_EXPEDITED)","asymmetric fences: free on the reader side, costly on the writer's","\u00A77"],
+["perf_event_open","hardware performance counters, PEBS, precise cycle attribution","meas"],
+["mmap of a NIC BAR","user-space access to device registers and transmit windows","05/07"]]};
+
+var GLOSSARY = [
+["Privilege and entry",[
+["CPL","Current Privilege Level","0 is kernel, 3 is user"],
+["MSR","Model Specific Register","CPU config register, varies per model"],
+["MSR_LSTAR","Long-mode System Target Address Register","Holds the kernel's syscall entry address"],
+["SWAPGS","Swap GS base register","Swaps in the kernel's per-core pointer"],
+["TSS","Task State Segment","Table holding the kernel's stack pointers"],
+["IDT","Interrupt Descriptor Table","Maps interrupt number to handler address"],
+["vDSO","virtual Dynamic Shared Object","Kernel code mapped into every process"],
+["KPTI","Kernel Page Table Isolation","Meltdown fix; splits user and kernel tables"],
+["IBRS","Indirect Branch Restricted Speculation","Spectre fix; restricts branch prediction"]]],
+["Memory and translation",[
+["MMU","Memory Management Unit","Hardware that translates every address"],
+["TLB","Translation Lookaside Buffer","Cache of virtual-to-physical translations"],
+["STLB","Second-level TLB","Bigger, slower, shared translation cache"],
+["dTLB / iTLB","data TLB / instruction TLB","Separate caches for data and code"],
+["CR3","Control Register 3","Points at the page table root"],
+["PML4","Page Map Level 4","Top level of the page table tree"],
+["PDPT","Page Directory Pointer Table","Third level of the page table tree"],
+["PD","Page Directory","Second level of the page table tree"],
+["PT","Page Table","Bottom level, holds the actual entries"],
+["PTE","Page Table Entry","One page's translation and permissions"],
+["VMA","Virtual Memory Area","Kernel record of one mapped region"],
+["#PF","Page Fault exception","Translation failed; the kernel must fix it"],
+["PCID","Process Context Identifier","Tags TLB entries per address space"],
+["ASID","Address Space Identifier","ARM's name for the same thing"],
+["INVLPG","Invalidate Page","Instruction that drops one TLB entry"],
+["LA57","Linear Address, 57-bit","Five-level paging for huge address spaces"],
+["THP","Transparent Huge Pages","Kernel promotes 4K pages automatically"],
+["RSS","Resident Set Size","Pages actually present in physical RAM"],
+["NUMA","Non-Uniform Memory Access","Each socket owns its own attached RAM"],
+["IOMMU","I/O Memory Management Unit","Address translation for device DMA"],
+["VIPT","Virtually Indexed, Physically Tagged","Cache lookup starts before translation ends"],
+["ELF","Executable and Linkable Format","The Linux binary and library file format"]]],
+["Caches and coherence",[
+["LLC","Last Level Cache","Another name for L3"],
+["MESI","Modified, Exclusive, Shared, Invalid","The four coherence states of a line"],
+["MESIF / MOESI","MESI plus Forward / plus Owned","Intel and AMD extensions to MESI"],
+["RFO","Request For Ownership","Asking permission to write a shared line"],
+["HITM","Hit Modified","Reading a line another core has dirtied"],
+["TSO","Total Store Order","x86's strong memory ordering guarantee"],
+["SMT","Simultaneous Multi-Threading","Intel calls this hyperthreading"],
+["UPI / QPI","Ultra Path / QuickPath Interconnect","The link between CPU sockets"],
+["CAT","Cache Allocation Technology","Reserve L3 ways for specific cores"],
+["MBA","Memory Bandwidth Allocation","Cap a core's memory bandwidth"],
+["RDT","Resource Director Technology","Intel's umbrella name for CAT and MBA"],
+["DDIO","Data Direct I/O","Device DMA lands in L3, not DRAM"]]],
+["Interrupts and kernel",[
+["IRQ","Interrupt Request","A device asking for attention"],
+["MSI-X","Message Signalled Interrupts, eXtended","Device interrupts delivered as memory writes"],
+["APIC","Advanced Programmable Interrupt Controller","Routes interrupts to specific cores"],
+["IPI","Inter-Processor Interrupt","One core interrupting another"],
+["NMI","Non-Maskable Interrupt","An interrupt you cannot block"],
+["SMI","System Management Interrupt","Firmware interrupt, invisible to the OS"],
+["softirq","Software Interrupt","Deferred kernel work queued by a handler"],
+["NAPI","New API","Poll-based network receive in the kernel"],
+["GRO","Generic Receive Offload","Merges small packets into one large one"],
+["sk_buff","Socket Buffer","The kernel's per-packet metadata object"],
+["RCU","Read-Copy-Update","Lock-free reads with deferred reclamation"],
+["CFS / EEVDF","Completely Fair Scheduler / Earliest Eligible Virtual Deadline First","Linux's default scheduler, old and new"],
+["SCHED_FIFO","First In, First Out scheduling","Real-time priority; runs until it yields"],
+["PM-QoS","Power Management Quality of Service","Kernel interface for latency requirements"]]],
+["Devices, PCIe and the wire",[
+["MMIO","Memory-Mapped I/O","Device registers exposed as memory addresses"],
+["BAR","Base Address Register","A device's mapped address window"],
+["TLP","Transaction Layer Packet","PCIe's unit of transfer"],
+["DMA","Direct Memory Access","A device writing RAM without the CPU"],
+["RDMA","Remote Direct Memory Access","Writing into another machine's memory"],
+["PIO","Programmed I/O","The CPU pushes bytes to the device itself"],
+["CTPIO","Cut-Through Programmed I/O","NIC transmits before the write finishes"],
+["WC","Write-Combining","Batches small writes into one transfer"],
+["PAT","Page Attribute Table","Sets a page's caching behaviour"],
+["MTRR","Memory Type Range Register","The older way to set caching behaviour"],
+["PHY","Physical layer chip","Decodes the electrical or optical signal"],
+["MAC","Media Access Control","The Ethernet framing layer"],
+["FCS","Frame Check Sequence","Ethernet's checksum at the frame's end"],
+["PTP","Precision Time Protocol","Nanosecond clock sync over the network"],
+["DPDK","Data Plane Development Kit","User-space poll-mode network drivers"],
+["AF_XDP","Address Family, eXpress Data Path","Kernel-supported zero-copy packet sockets"],
+["FPGA","Field Programmable Gate Array","Reconfigurable logic, no instruction fetch"]]],
+["Measurement and protocols",[
+["PMU","Performance Monitoring Unit","The CPU's hardware performance counters"],
+["PEBS","Precise Event Based Sampling","Counters that name the exact instruction"],
+["RDTSC / RDTSCP","Read Time-Stamp Counter (serialized)","Read the CPU's cycle counter directly"],
+["TMA","Top-down Microarchitecture Analysis","Method for finding the real bottleneck"],
+["SPSC","Single Producer, Single Consumer","One writer, one reader, no locks needed"],
+["SBE","Simple Binary Encoding","Fixed-layout market data wire format"],
+["ITCH / OUCH","Nasdaq market data / order entry","Nasdaq's feed and order-entry protocols"],
+["MDP","Market Data Platform","CME's market data feed protocol"]]]
+];
+
+var TOPFIVE = [
+["Erik Rigtorp \u2014 Low latency tuning guide","https://rigtorp.se/low-latency-guide/","The checklist. Do this first, in this order."],
+["Carl Cook \u2014 When a Microsecond Is an Eternity","https://www.youtube.com/results?search_query=Carl+Cook+When+a+Microsecond+Is+an+Eternity+CppCon+2017","The best single hour on the subject. Cache warming is here."],
+["Drepper \u2014 What Every Programmer Should Know About Memory","https://www.akkadia.org/drepper/cpumemory.pdf","Long, old, still unmatched on the MMU, TLB and coherence."],
+["Neugebauer et al. \u2014 Understanding PCIe Performance","https://www.cl.cam.ac.uk/research/srg/netos/projects/pcie-bench/","Every PCIe number on this page traces back here."],
+["LWN kernel index","https://lwn.net/Kernel/Index/","When you need to know what the kernel actually does now."]
+];
+
+/* ================================================================= */
+/*  render                                                           */
+/* ================================================================= */
+
+var open = 5;
+
+function scope(label, txt){
+  return '<div class="scope"><div class="scope-label">' + esc(label) + '</div>' +
+         '<pre class="scope-body">' + esc(txt) + '</pre></div>';
+}
+function links(items){
+  return '<ul class="links">' + items.map(function(it){
+    return '<li><a href="' + esc(it[1]) + '" target="_blank" rel="noreferrer">' +
+           '<span class="arrow">&#8599;</span><span>' + esc(it[0]) + '</span></a>' +
+           '<span class="host">' + esc(host(it[1])) + '</span></li>';
+  }).join("") + '</ul>';
+}
+function table(spec, wide){
+  var n = spec.head.length;
+  var h = spec.head.map(function(x){ return '<th>' + esc(x) + '</th>'; }).join("");
+  var b = spec.rows.map(function(r){
+    var tds = "";
+    for (var j = 0; j < n; j++){
+      var cls = j === 0 ? ' class="td-k"' : (j === 1 ? ' class="td-v"' : "");
+      var st = (j === 1 && r[n]) ? ' style="color:var(--' + r[n] + ')"' : "";
+      tds += '<td' + cls + st + '>' + esc(r[j]) + '</td>';
+    }
+    return '<tr>' + tds + '</tr>';
+  }).join("");
+  return '<div class="tbl-wrap"><table' + (wide ? ' class="wide"' : '') + '>' +
+         '<thead><tr>' + h + '</tr></thead><tbody>' + b + '</tbody></table></div>';
+}
+function pad(n){ return n < 10 ? "0" + n : "" + n; }
+
+function traceRows(){
+  return STAGES.map(function(s){
+    return '<button class="row' + (open === s.id ? ' on' : '') + '" data-go="' + s.id + '">' +
+      '<span class="rid">' + pad(s.id) + '</span>' +
+      '<span class="rname">' + esc(s.name) + '</span>' +
+      '<span class="rbar"><span class="fill" style="width:' + pct(s.ns).toFixed(2) + '%;background:var(--' + s.color + ')"></span></span>' +
+      '<span class="rval" style="color:var(--' + s.color + ')">' + fmt(s.ns) + '</span></button>';
+  }).join("");
+}
+
+function stageHtml(s){
+  var isOpen = open === s.id;
+  var out = '<section class="stage' + (isOpen ? ' open' : '') + '" id="stage-' + s.id + '">' +
+    '<button class="stage-head" data-go="' + s.id + '">' +
+      '<span class="sid" style="color:var(--' + s.color + ')">' + pad(s.id) + '</span>' +
+      '<span class="stitle"><span class="sname">' + esc(s.name) + '</span>' +
+      '<span class="slede">' + esc(s.lede) + '</span></span>' +
+      '<span class="smeta"><span style="color:var(--' + s.color + ')">' + fmt(s.ns) + '</span>' +
+      '<span class="stail">p99.9 ' + esc(s.tail) + '</span></span>' +
+      '<span class="chev">&#9662;</span>' +
+    '</button>';
+  if (isOpen){
+    out += '<div class="stage-body">';
+    out += '<div class="verdict" style="border-color:var(--' + s.color + ')">' + esc(s.verdict) + '</div>';
+    if (s.calls && s.calls.length){
+      out += '<div class="calls"><span class="calls-h">syscalls in play</span>' +
+        s.calls.map(function(c){ return '<code>' + esc(c) + '</code>'; }).join("") + '</div>';
+    }
+    if (s.ascii) out += scope("stage " + pad(s.id), s.ascii);
+    if (s.points){
+      out += '<ul class="villains">' + s.points.map(function(p){
+        return '<li><strong>' + esc(p[0]) + '</strong><span>' + esc(p[1]) + '</span></li>';
+      }).join("") + '</ul>';
+    }
+    if (s.table) out += table(s.table, false);
+    if (s.body){
+      out += s.body.map(function(p){
+        return '<div class="para"><h4>' + esc(p[0]) + '</h4><p>' + esc(p[1]) + '</p></div>';
+      }).join("");
+    }
+    if (s.res) out += '<div class="res"><div class="res-h">Go deeper</div>' + links(s.res) + '</div>';
+    out += '</div>';
+  }
+  return out + '</section>';
+}
+
+function glossaryHtml(q){
+  var needle = (q || "").trim().toLowerCase();
+  var groups = GLOSSARY.map(function(g){
+    var rows = needle ? g[1].filter(function(r){ return r.join(" ").toLowerCase().indexOf(needle) !== -1; }) : g[1];
+    return [g[0], rows];
+  }).filter(function(g){ return g[1].length > 0; });
+  if (!groups.length) return '<p class="empty">Nothing matches that. Try a shorter word.</p>';
+  return groups.map(function(g){
+    return '<div class="gl"><div class="gl-h">' + esc(g[0]) + '</div><ul>' +
+      g[1].map(function(r){
+        return '<li><code>' + esc(r[0]) + '</code><span class="gl-full">' + esc(r[1]) +
+               '</span><span class="gl-mean">' + esc(r[2]) + '</span></li>';
+      }).join("") + '</ul></div>';
+  }).join("");
+}
+
+function render(){
+  var ticks = [[150,"100 ns"],[1000,"1 \u00B5s"],[10000,"10 \u00B5s"],[100000,"100 \u00B5s"]];
+  var dark = document.body.classList.contains("dark");
+
+  document.getElementById("app").innerHTML =
+  '<header class="hero">' +
+    '<div class="eyebrow"><span>Systems engineering field notes</span>' +
+    '<button class="toggle" id="tgl" aria-pressed="' + dark + '">' +
+    '<span class="dot' + (dark ? ' on' : '') + '"></span>' + (dark ? "dark" : "light") + '</button></div>' +
+    '<h1>Tick<span class="hy">&#8212;</span>to<span class="hy">&#8212;</span>trade</h1>' +
+    '<p class="sub">A packet lands on a fibre. Roughly one microsecond later, an order is on its way back ' +
+    'out. Part I is the machine underneath \u2014 privilege levels, address translation, what a page actually ' +
+    'holds, cache lines, coherence, interrupts. Part II is the ladder: every layer that has to get out of ' +
+    'the way, and the exact syscall, boot flag or piece of silicon that moves it. Every abbreviation is ' +
+    'expanded in \u00A712.</p>' +
+    '<div class="ruler">' + ticks.map(function(t){
+      return '<div class="tick" style="left:' + pct(t[0]).toFixed(2) + '%"><span>' + t[1] + '</span></div>';
+    }).join("") + '</div>' +
+    '<div class="trace">' + traceRows() + '</div>' +
+    '<p class="note">Log scale. Note the shape: stages 01\u201304 barely move the average but destroy the ' +
+    'tail. Stage 05 is the only one that moves the mean. Most teams attempt them in the wrong order.' +
+    '<span class="dimspan"> Click any row to expand it.</span></p>' +
+  '</header>' +
+
+  '<section class="part"><div class="part-tag">Part I</div><h2>The machine underneath</h2>' +
+  '<p class="lead">Six mechanisms decide almost every nanosecond that follows: the privilege boundary, ' +
+  'address translation, the page, the cache line, coherence, and interrupts. Everything in Part II is an ' +
+  'argument with one of them.</p></section>' +
+
+  '<section class="block"><h3><span class="hn">\u00A71</span> Kernel space, user space, and the cost of the door</h3>' +
+  scope("privilege", RINGS) + links([
+    ["LWN \u2014 kernel page-table isolation and its cost","https://lwn.net/Articles/741878/"],
+    ["Kernel docs \u2014 x86-64 syscall entry code","https://docs.kernel.org/arch/x86/entry_64.html"],
+    ["Intel SDM Vol. 3 \u2014 protection, privilege levels and paging","https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html"]]) +
+  '</section>' +
+
+  '<section class="block"><h3><span class="hn">\u00A72</span> The MMU: virtual addresses are a hardware fiction</h3>' +
+  scope("translation", MMU) + links([
+    ["LWN \u2014 five-level page tables","https://lwn.net/Articles/717293/"],
+    ["Kernel docs \u2014 the x86-64 memory map","https://docs.kernel.org/arch/x86/x86_64/mm.html"],
+    ["Gorman \u2014 Understanding the Linux Virtual Memory Manager","https://www.kernel.org/doc/gorman/html/understand/"]]) +
+  '</section>' +
+
+  '<section class="block"><h3><span class="hn">\u00A73</span> The TLB: who fills it, how big it is, where it sits</h3>' +
+  scope("translation cache", TLB) + links([
+    ["LWN \u2014 TLB shootdowns and how the kernel batches them","https://lwn.net/Articles/649484/"],
+    ["LWN \u2014 hugepages, part 1: introduction","https://lwn.net/Articles/374424/"],
+    ["7-CPU \u2014 measured TLB sizes and miss penalties","https://www.7-cpu.com/"],
+    ["Kernel docs \u2014 HugeTLB pages","https://docs.kernel.org/admin-guide/mm/hugetlbpage.html"]]) +
+  '</section>' +
+
+  '<section class="block"><h3><span class="hn">\u00A74</span> What a page actually contains</h3>' +
+  '<p class="lead">A page is 4096 bytes with no header and no type. Its identity lives entirely outside ' +
+  'it \u2014 in the page table entry and the kernel\u2019s bookkeeping. Six concrete examples of what those ' +
+  'bytes turn out to be.</p>' +
+  scope("contents", PAGE) + links([
+    ["Kernel docs \u2014 /proc filesystem, including maps and smaps","https://docs.kernel.org/filesystems/proc.html"],
+    ["LWN \u2014 the shrinking of struct page","https://lwn.net/Articles/565097/"],
+    ["glibc malloc internals (chunk headers, bins, tcache)","https://sourceware.org/glibc/wiki/MallocInternals"],
+    ["Kernel docs \u2014 concepts overview of memory management","https://docs.kernel.org/admin-guide/mm/concepts.html"],
+    ["LWN \u2014 transparent hugepages and physical fragmentation","https://lwn.net/Articles/423584/"],
+    ["Gorman \u2014 Understanding the Linux Virtual Memory Manager","https://www.kernel.org/doc/gorman/html/understand/"]]) +
+  '</section>' +
+
+  '<section class="block"><h3><span class="hn">\u00A75</span> Cache lines, pages, and why the CPU cannot just keep reading</h3>' +
+  '<p class="lead">The most common wrong mental model is a cursor walking forward through memory. There ' +
+  'is no cursor. Understanding why explains hugepages, prefetching, alignment and process isolation all ' +
+  'at once.</p>' +
+  scope("lookup", LINES) + links([
+    ["Agner Fog \u2014 microarchitecture manual (prefetcher behaviour per core)","https://www.agner.org/optimize/"],
+    ["Intel optimization manual \u2014 hardware prefetchers and page boundaries","https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html"],
+    ["Travis Downs \u2014 measuring split-line and split-page penalties","https://travisdowns.github.io/"],
+    ["Lemire \u2014 alignment and unaligned loads in practice","https://lemire.me/blog/"],
+    ["Chips and Cheese \u2014 cache and TLB microbenchmarks","https://chipsandcheese.com/"]]) +
+  '</section>' +
+
+  '<section class="block"><h3><span class="hn">\u00A76</span> Every level of sharing, and what it costs</h3>' +
+  '<p class="lead">One axis: the further data must travel to be shared, the more it costs \u2014 and the ' +
+  'cost grows much faster in variance than in mean.</p>' + table(SHARING, true) + '</section>' +
+
+  '<section class="block"><h3><span class="hn">\u00A77</span> Inter-core synchronisation and coordination</h3>' +
+  scope("coherence", COHERENCE) + links([
+    ["Paul McKenney \u2014 Is Parallel Programming Hard? (free book)","https://mirrors.edge.kernel.org/pub/linux/kernel/people/paulmck/perfbook/perfbook.html"],
+    ["Kernel docs \u2014 memory barriers","https://docs.kernel.org/core-api/wrappers/memory-barriers.html"],
+    ["Preshing \u2014 memory ordering, acquire/release, x86-TSO","https://preshing.com/archives/"],
+    ["Sewell et al. \u2014 x86-TSO: a rigorous and usable model","https://www.cl.cam.ac.uk/~pes20/weakmemory/"],
+    ["LWN \u2014 the membarrier() system call","https://lwn.net/Articles/728795/"],
+    ["Erik Rigtorp \u2014 SPSC queue and cache-line padding","https://rigtorp.se/ringbuffer/"]]) +
+  '</section>' +
+
+  '<section class="block"><h3><span class="hn">\u00A78</span> Everything that can interrupt you, by name</h3>' +
+  table(INTERRUPTS, true) + links([
+    ["Kernel docs \u2014 the generic IRQ and softirq layer","https://docs.kernel.org/core-api/genericirq.html"],
+    ["LWN \u2014 NAPI, interrupt mitigation and the receive path","https://lwn.net/Articles/833840/"],
+    ["Kernel docs \u2014 the osnoise and timerlat tracers","https://docs.kernel.org/trace/osnoise-tracer.html"]]) +
+  '</section>' +
+
+  '<section class="part"><div class="part-tag">Part II</div><h2>The ladder: 100 \u00B5s to 150 ns</h2>' +
+  '<p class="lead">Ten stages, in the order that actually pays. Each one names the mechanism it removes.</p></section>' +
+
+  '<main>' + STAGES.map(stageHtml).join("") + '</main>' +
+
+  '<section class="block"><h3><span class="hn">\u00A79</span> The syscall sheet</h3>' + table(SYSCALLS, false) + '</section>' +
+
+  '<section class="block"><h3><span class="hn">\u00A710</span> Measurement, or none of this happened</h3>' +
+  scope("instrumentation", MEASURE) + links([
+    ["Brendan Gregg \u2014 perf examples","https://www.brendangregg.com/perf.html"],
+    ["Intel pmu-tools / toplev \u2014 top-down analysis","https://github.com/andikleen/pmu-tools"],
+    ["LWN \u2014 the hardware latency detector","https://lwn.net/Articles/525111/"],
+    ["linuxptp \u2014 ptp4l and phc2sys","https://linuxptp.nwtime.org/"]]) +
+  '</section>' +
+
+  '<section class="block"><h3><span class="hn">\u00A711</span> If you read nothing else, read these five, in this order</h3>' +
+  '<ol class="five">' + TOPFIVE.map(function(t, i){
+    return '<li><span class="fnum">' + (i+1) + '</span><span class="fbody">' +
+      '<a href="' + esc(t[1]) + '" target="_blank" rel="noreferrer">' + esc(t[0]) + '</a>' +
+      '<em>' + esc(t[2]) + '</em></span></li>';
+  }).join("") + '</ol></section>' +
+
+  '<section class="block"><h3><span class="hn">\u00A712</span> Every abbreviation on this page</h3>' +
+  '<p class="lead">Full expansion, then a plain-English meaning in six words or fewer. None of this is ' +
+  'jargon you need to memorise \u2014 it is all shorthand for something concrete.</p>' +
+  '<input class="filter" id="flt" placeholder="filter \u2014 try tlb, page, interrupt, pcie\u2026" aria-label="Filter glossary">' +
+  '<div id="glout">' + glossaryHtml("") + '</div></section>' +
+
+  '<footer><span>measure \u2192 isolate \u2192 poll \u2192 pin memory \u2192 bypass \u2192 warm</span>' +
+  '<span class="f-dim">Representative of colocated 10G systems. Numbers are budgets, not guarantees.</span></footer>';
+
+  wire();
+}
+
+var pendingFilter = "";
+function wire(){
+  document.getElementById("tgl").addEventListener("click", function(){
+    document.body.classList.toggle("dark");
+    document.body.classList.toggle("light");
+    render();
+  });
+  Array.prototype.forEach.call(document.querySelectorAll("[data-go]"), function(el){
+    el.addEventListener("click", function(){
+      var id = parseInt(el.getAttribute("data-go"), 10);
+      open = (open === id) ? -1 : id;
+      var y = window.scrollY;
+      render();
+      window.scrollTo(0, y);
+    });
+  });
+  var f = document.getElementById("flt");
+  f.value = pendingFilter;
+  f.addEventListener("input", function(){
+    pendingFilter = f.value;
+    document.getElementById("glout").innerHTML = glossaryHtml(f.value);
+  });
+}
+
+try {
+  if (window.matchMedia("(prefers-color-scheme: dark)").matches){
+    document.body.classList.remove("light");
+    document.body.classList.add("dark");
+  }
+} catch(e){}
+render();
+</script>
+</body>
+</html>
